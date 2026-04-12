@@ -20,9 +20,12 @@ This Godot project implements an interactive digital tarot deck. It is **not a g
 | **Shuffle** | Deck shuffles; orientation is randomized per card at configurable probability |
 | **Knowledge graph** | Card metadata and edges loaded from JSON exported from this vault |
 
-## Engine
+## Engine and Deployment Target
 
-**Godot 4.x** — GDScript
+**Godot 4.x** — GDScript  
+**Primary export**: Web (HTML5 / WebAssembly), deployed as a **PWA**
+
+No native app installs. One URL, works on any phone browser, installable to home screen. See [[#Deployment Web / PWA]] below.
 
 ## Project File Structure
 
@@ -105,6 +108,92 @@ The Obsidian vault is the **source of truth** for card metadata. A Python export
 | Reversed = 180° rotation | Visually unambiguous; stored per-card in `DeckState` |
 | Snap radius on drop | Cards snap to the nearest slot if within 80px; otherwise stay freeform |
 | `GraphDB` as autoload | Graph is available globally; `CardInfo` panel can query neighbors on click |
+| Emulate Mouse from Touch: ON | Single input code path handles both desktop mouse and phone touch |
+| Pan/zoom via Camera2D | Spreads wider than the phone screen stay usable; no fixed viewport constraint |
+| Web export + PWA | No app store; one URL; installable to home screen on Android and iOS |
+
+---
+
+## Deployment: Web / PWA
+
+### What gets built
+
+Godot's HTML5 export produces a self-contained bundle:
+```
+index.html
+index.js
+index.wasm
+index.pck          ← all game assets packed here
+index.audio.worklet.js
+```
+
+With **Progressive Web App** enabled in the export settings, Godot also generates:
+```
+manifest.json      ← app name, icons, display mode
+service_worker.js  ← enables offline use and home-screen install
+```
+
+### How to host
+
+Any static file host works. Recommended options:
+
+| Host | Notes |
+|------|-------|
+| **GitHub Pages** | Free, automatic from a branch; familiar if you've done webapps |
+| **Netlify** | Free tier, drag-and-drop deploy or Git-connected; good for quick shares |
+| **itch.io** | Free, designed for Godot web exports specifically; good for testing |
+
+> **HTTPS is required** for PWA install prompts and for SharedArrayBuffer (which Godot's web export needs for threading). GitHub Pages and Netlify provide HTTPS automatically.
+
+### Enabling PWA in Godot
+
+In the Godot export dialog (Project > Export > Web):
+1. Check **"Progressive Web App"**
+2. Set app name, short name, and upload icons (192×192 and 512×512 PNG)
+3. Set **Display mode**: `standalone` (fills screen, no browser chrome)
+4. Set **Orientation**: `portrait` or `any` — `any` lets the user decide
+
+### What your sister does
+
+1. Open the URL in Safari (iOS) or Chrome (Android)
+2. Tap the share/menu button → **"Add to Home Screen"**
+3. It installs as an icon on her home screen
+4. Tapping it opens full-screen, no browser address bar, behaves exactly like a native app
+5. Works offline after first load (service worker caches assets)
+
+### Responsive Viewport
+
+Set base resolution in **Project Settings > Display > Window**:
+
+| Setting | Value |
+|---------|-------|
+| Viewport Width | 1080 |
+| Viewport Height | 1920 |
+| Content Scale Mode | `canvas_items` |
+| Content Scale Aspect | `keep` |
+
+This gives a portrait-oriented "world" that scales cleanly to any phone. The `Camera2D` with pinch-zoom (see [[Card-Node-Design#Canvas Pan and Zoom]]) handles spreads that are wider than the screen.
+
+### COOP / COEP Headers (required for Godot 4 web)
+
+Godot 4's web export requires two HTTP headers for `SharedArrayBuffer` support:
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+```
+
+On **Netlify**: add a `netlify.toml` at repo root:
+```toml
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Embedder-Policy = "require-corp"
+```
+
+On **GitHub Pages**: these headers cannot be set directly. Use a workaround repo like `godot-web-export-fix` or host on Netlify instead.
+
+---
 
 ## See Also
 
