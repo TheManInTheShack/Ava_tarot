@@ -1,0 +1,68 @@
+{
+  "nodes": {
+    "MA-00": {
+      "name": "The Fool",
+      "arcana": "Major",
+      "number": 0,
+      "suit": null,
+      "element": "Air",
+      "planet": "Uranus",
+      "zodiac": null,
+      "keywords_upright": ["beginnings", "innocence", "spontaneity", "free spirit", "adventure", "potential"],
+      "keywords_reversed": ["recklessness", "naivety", "holding back", "poor judgement"],
+      "image": "MA-00-The-Fool.png",
+      "godot_scene": "res://Cards/Major/TheFool.tscn",
+      "status": "complete"
+    },
+    "MA-01": {
+      "name": "The Magician",
+      "arcana": "Major",
+      "number": 1,
+      "suit": null,
+      "element": "Air",
+      "planet": "Mercury",
+      "zodiac": null,
+      "keywords_upright": ["manifestation", "resourcefulness", "power", "inspired action", "skill"],
+      "keywords_reversed": ["manipulation", "poor planning", "untapped talents", "trickery"],
+      "image": "MA-01-The-Magician.png",
+      "godot_scene": "res://Cards/Major/TheMagician.tscn",
+      "status": "complete"
+    },
+    "MA-02": {
+      "name": "The High Priestess",
+      "arcana": "Major",
+      "number": 2,
+      "suit": null,
+      "element": "Water",
+      "planet": "Moon",
+      "zodiac": null,
+      "keywords_upright": ["intuition", "sacred knowledge", "divine feminine", "subconscious mind", "mystery", "inner voice"],
+      "keywords_reversed": ["secrets withheld", "disconnected from intuition", "surface knowledge only", "silence becoming isolation"],
+      "image": "MA-02-The-High-Priestess.png",
+      "godot_scene": "res://Cards/Major/TheHighPriestess.tscn",
+      "status": "complete"
+    },
+    "WA-01": {
+      "name": "Ace of Wands",
+      "arcana": "Minor",
+      "number": 1,
+      "suit": "Wands",
+      "element": "Fire",
+      "planet": null,
+      "zodiac": null,
+      "keywords_upright": ["inspiration", "new opportunities", "growth", "potential", "creative spark", "enthusiasm"],
+      "keywords_reversed": ["delays", "lack of energy", "lack of passion"],
+      "image": "WA-01-Ace-of-Wands.png",
+      "godot_scene": "res://Cards/Minor/WandsAce.tscn",
+      "status": "complete"
+    }
+  },
+  "edges": [
+    {"source": "MA-00", "target": "MA-01", "relationship": "sequential", "weight": 1.0, "properties": {"notes": "First step on the Fool's Journey; raw potential meets focused will"}},
+    {"source": "MA-01", "target": "MA-00", "relationship": "sequential", "weight": 1.0, "properties": {"notes": "The Fool precedes; the Magician is what happens when raw potential picks up its first tool"}},
+    {"source": "MA-01", "target": "MA-02", "relationship": "complementary", "weight": 0.9, "properties": {"notes": "Active/receptive duality; Magician externalizes will, Priestess guards what lies beneath", "bidirectional": true}},
+    {"source": "MA-02", "target": "MA-01", "relationship": "complementary", "weight": 0.9, "properties": {"notes": "Active/receptive; Magician externalizes will, Priestess holds the inner sanctuary", "bidirectional": true}},
+    {"source": "WA-01", "target": "MA-01", "relationship": "archetype", "weight": 0.7, "properties": {"notes": "The Magician is the archetype of directed will that the Wands suit embodies throughout"}},
+    {"source": "WA-01", "target": "MA-00", "relationship": "thematic", "weight": 0.6, "properties": {"notes": "Both initiatory: the Fool leaps into the unknown, the Ace offers the creative torch for the leap"}}
+  ]
+}

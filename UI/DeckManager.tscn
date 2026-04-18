@@ -1,0 +1,43 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://UI/DeckManager.gd" id="1_script"]
+
+[node name="DeckManager" type="PanelContainer"]
+anchor_left = 0.0
+anchor_right = 0.0
+anchor_top = 0.0
+anchor_bottom = 0.0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = 300.0
+offset_bottom = 240.0
+script = ExtResource("1_script")
+
+[node name="MarginContainer" type="MarginContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+theme_override_constants/separation = 10
+
+[node name="ShuffleButton" type="Button" parent="MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 72)
+text = "Shuffle Deck"
+theme_override_font_sizes/font_size = 30
+
+[node name="DealButton" type="Button" parent="MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 72)
+text = "Deal Card"
+theme_override_font_sizes/font_size = 30
+
+[node name="RemainingLabel" type="Label" parent="MarginContainer/VBoxContainer"]
+text = "Cards remaining: 0"
+theme_override_font_sizes/font_size = 24

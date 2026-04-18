@@ -1,0 +1,41 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Cards/CardBase.gd" id="1_script"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_col"]
+size = Vector2(140, 240)
+
+[node name="CardBase" type="Node2D"]
+script = ExtResource("1_script")
+
+[node name="CardBack" type="Sprite2D" parent="."]
+
+[node name="CardFront" type="Sprite2D" parent="."]
+visible = false
+
+[node name="CardNameLabel" type="Label" parent="."]
+visible = false
+position = Vector2(-60, -16)
+size = Vector2(120, 32)
+text = ""
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 3
+theme_override_font_sizes/font_size = 20
+
+[node name="SelectionHighlight" type="Polygon2D" parent="."]
+visible = false
+color = Color(1, 0.9, 0.2, 0.35)
+polygon = PackedVector2Array(-72, -122, 72, -122, 72, 122, -72, 122)
+
+[node name="DropShadow" type="Sprite2D" parent="."]
+z_index = -1
+position = Vector2(5, 5)
+modulate = Color(0, 0, 0, 0.25)
+
+[node name="CollisionArea" type="Area2D" parent="."]
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="CollisionArea"]
+shape = SubResource("RectangleShape2D_col")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]

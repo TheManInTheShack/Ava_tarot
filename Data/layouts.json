@@ -1,0 +1,35 @@
+{
+  "layouts": [
+    {
+      "layout_id": "three-card",
+      "name": "Three-Card Spread",
+      "description": "A versatile three-position spread. Classic interpretation is Past / Present / Future.",
+      "card_orientation": "mixed",
+      "godot_scene": "res://Layouts/ThreeCard.tscn",
+      "slots": [
+        {"slot_id": 1, "label": "Past",    "x": -220, "y": 0, "rotation": 0, "meaning": "What has shaped the current situation"},
+        {"slot_id": 2, "label": "Present", "x":    0, "y": 0, "rotation": 0, "meaning": "The current state of affairs"},
+        {"slot_id": 3, "label": "Future",  "x":  220, "y": 0, "rotation": 0, "meaning": "Where events are trending"}
+      ]
+    },
+    {
+      "layout_id": "celtic-cross",
+      "name": "Celtic Cross",
+      "description": "The classic ten-card spread providing a comprehensive view of a situation.",
+      "card_orientation": "mixed",
+      "godot_scene": "res://Layouts/CelticCross.tscn",
+      "slots": [
+        {"slot_id":  1, "label": "The Present",          "x":   0, "y":    0, "rotation":  0, "meaning": "The heart of the matter"},
+        {"slot_id":  2, "label": "The Challenge",        "x":   0, "y":    0, "rotation": 90, "meaning": "What crosses or challenges card 1"},
+        {"slot_id":  3, "label": "Recent Past",          "x":   0, "y":  200, "rotation":  0, "meaning": "Events just passed that still influence the present"},
+        {"slot_id":  4, "label": "Past",                 "x": -300, "y":   0, "rotation":  0, "meaning": "Foundational past events; what has led here"},
+        {"slot_id":  5, "label": "Crown",                "x":   0, "y": -200, "rotation":  0, "meaning": "What the querent strives toward; best possible outcome"},
+        {"slot_id":  6, "label": "Near Future",          "x":  300, "y":    0, "rotation":  0, "meaning": "What is approaching in the near term"},
+        {"slot_id":  7, "label": "Self",                 "x":  550, "y":  300, "rotation":  0, "meaning": "The querent's attitude, inner state, and self-perception"},
+        {"slot_id":  8, "label": "External Environment", "x":  550, "y":  100, "rotation":  0, "meaning": "How others see the querent; external influences"},
+        {"slot_id":  9, "label": "Hopes and Fears",      "x":  550, "y": -100, "rotation":  0, "meaning": "The querent's deepest hopes or fears"},
+        {"slot_id": 10, "label": "Outcome",              "x":  550, "y": -300, "rotation":  0, "meaning": "The likely outcome if the current trajectory continues"}
+      ]
+    }
+  ]
+}
