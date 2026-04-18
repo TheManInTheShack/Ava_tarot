@@ -1,0 +1,20 @@
+{
+  "legacyEditor": false,
+  "livePreview": true,
+  "defaultViewMode": "preview",
+  "foldHeading": true,
+  "foldIndent": true,
+  "showLineNumber": false,
+  "readableLineLength": true,
+  "spellcheck": true,
+  "strictLineBreaks": false,
+  "showFrontmatter": false,
+  "newFileLocation": "folder",
+  "newFileFolderPath": "Cards",
+  "attachmentFolderPath": "Assets/Images",
+  "trashOption": "local",
+  "alwaysUpdateLinks": true,
+  "promptDelete": false,
+  "useMarkdownLinks": false,
+  "theme": ""
+}
