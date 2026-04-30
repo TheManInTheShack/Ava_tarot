@@ -55,9 +55,10 @@ As **0**, The Fool is the wildcard, the joker — present in the traditional car
 ## Adjacency List
 
 | target_id | target_name | relationship | weight | properties |
-|-----------|-------------|--------------|--------|------------|
+| ---- | ---- | ---- | ---- | ---- |
 | MA-01 | [[01-The-Magician]] | sequential | 1.0 | {"notes": "First step on the Fool's Journey; raw potential meets focused will and the first tool"} |
 | MA-21 | [[21-The-World]] | sequential_cycle | 0.9 | {"notes": "The World completes the journey; the Fool begins it anew — the cycle is unbroken", "bidirectional": true} |
 | MA-13 | [[13-Death]] | thematic | 0.6 | {"notes": "Both signal the void between states; Death is the Fool's midnight counterpart"} |
 | MA-17 | [[17-The-Star]] | elemental | 0.4 | {"element": "Air", "notes": "Shared airy openness and freedom; the Star is hope, the Fool is the leap toward it"} |
 | MA-12 | [[12-The-Hanged-Man]] | thematic | 0.5 | {"notes": "Both inhabit liminal, suspended space — one at the cliff's edge, one hanging between worlds"} |
+|  |  |  |  |  |

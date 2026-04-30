@@ -3,34 +3,35 @@
 [ext_resource type="Script" path="res://UI/LayoutSelector.gd" id="1_script"]
 
 [node name="LayoutSelector" type="PanelContainer"]
-anchor_left = 0.5
-anchor_right = 0.5
-anchor_top = 1.0
-anchor_bottom = 1.0
-offset_left = -220.0
-offset_top = -90.0
-offset_right = 220.0
-offset_bottom = -10.0
+anchor_left = 0.0
+anchor_right = 1.0
+anchor_top = 0.0
+anchor_bottom = 0.0
+offset_right = 0.0
+offset_bottom = 100.0
 script = ExtResource("1_script")
 
 [node name="MarginContainer" type="MarginContainer" parent="."]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-theme_override_constants/margin_left = 12
-theme_override_constants/margin_right = 12
-theme_override_constants/margin_top = 8
-theme_override_constants/margin_bottom = 8
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_bottom = 10
 
-[node name="VBoxContainer" type="VBoxContainer" parent="MarginContainer"]
+[node name="HBoxContainer" type="HBoxContainer" parent="MarginContainer"]
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+theme_override_constants/separation = 14
 
-[node name="SpreadLabel" type="Label" parent="MarginContainer/VBoxContainer"]
-text = "Spread:"
-theme_override_font_sizes/font_size = 24
+[node name="SpreadLabel" type="Label" parent="MarginContainer/HBoxContainer"]
+text = "Spread"
+vertical_alignment = 1
+theme_override_font_sizes/font_size = 30
 
-[node name="OptionButton" type="OptionButton" parent="MarginContainer/VBoxContainer"]
-custom_minimum_size = Vector2(0, 60)
-theme_override_font_sizes/font_size = 28
+[node name="OptionButton" type="OptionButton" parent="MarginContainer/HBoxContainer"]
+size_flags_horizontal = 3
+custom_minimum_size = Vector2(0, 72)
+theme_override_font_sizes/font_size = 30

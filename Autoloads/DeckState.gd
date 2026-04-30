@@ -6,7 +6,7 @@ var reversal_probability: float = 0.33
 var draw_index: int = 0
 
 func shuffle_deck(card_ids: Array) -> Array:
-	deck_order = card_ids.duplicate()
+	deck_order.assign(card_ids)
 	deck_order.shuffle()
 	card_orientations.clear()
 	for id in deck_order:

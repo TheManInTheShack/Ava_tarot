@@ -5,7 +5,7 @@
 [node name="CelticCross" instance=ExtResource("1_base")]
 
 [node name="Slot1" type="Marker2D" parent="."]
-position = Vector2(0, 0)
+position = Vector2(-125, 0)
 metadata/slot_id = 1
 metadata/label = "The Present"
 metadata/meaning = "The heart of the matter"
@@ -13,14 +13,15 @@ metadata/slot_rotation = 0.0
 metadata/force_reversed = false
 
 [node name="SlotLabel1" type="Label" parent="Slot1"]
-position = Vector2(-60, 130)
-size = Vector2(120, 30)
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
 text = "The Present"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)
 
 [node name="Slot2" type="Marker2D" parent="."]
-position = Vector2(0, 0)
+position = Vector2(-125, 0)
 metadata/slot_id = 2
 metadata/label = "The Challenge"
 metadata/meaning = "What crosses or challenges card 1"
@@ -28,7 +29,7 @@ metadata/slot_rotation = 90.0
 metadata/force_reversed = false
 
 [node name="Slot3" type="Marker2D" parent="."]
-position = Vector2(0, 200)
+position = Vector2(-125, 340)
 metadata/slot_id = 3
 metadata/label = "Recent Past"
 metadata/meaning = "Events just passed"
@@ -36,14 +37,15 @@ metadata/slot_rotation = 0.0
 metadata/force_reversed = false
 
 [node name="SlotLabel3" type="Label" parent="Slot3"]
-position = Vector2(-60, 130)
-size = Vector2(120, 30)
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
 text = "Recent Past"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)
 
 [node name="Slot4" type="Marker2D" parent="."]
-position = Vector2(-300, 0)
+position = Vector2(-425, 0)
 metadata/slot_id = 4
 metadata/label = "Past"
 metadata/meaning = "Foundational past events"
@@ -51,14 +53,15 @@ metadata/slot_rotation = 0.0
 metadata/force_reversed = false
 
 [node name="SlotLabel4" type="Label" parent="Slot4"]
-position = Vector2(-50, 130)
-size = Vector2(100, 30)
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
 text = "Past"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)
 
 [node name="Slot5" type="Marker2D" parent="."]
-position = Vector2(0, -200)
+position = Vector2(-125, -340)
 metadata/slot_id = 5
 metadata/label = "Crown"
 metadata/meaning = "What the querent strives toward"
@@ -66,14 +69,15 @@ metadata/slot_rotation = 0.0
 metadata/force_reversed = false
 
 [node name="SlotLabel5" type="Label" parent="Slot5"]
-position = Vector2(-50, 130)
-size = Vector2(100, 30)
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
 text = "Crown"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)
 
 [node name="Slot6" type="Marker2D" parent="."]
-position = Vector2(300, 0)
+position = Vector2(175, 0)
 metadata/slot_id = 6
 metadata/label = "Near Future"
 metadata/meaning = "What is approaching"
@@ -81,14 +85,15 @@ metadata/slot_rotation = 0.0
 metadata/force_reversed = false
 
 [node name="SlotLabel6" type="Label" parent="Slot6"]
-position = Vector2(-55, 130)
-size = Vector2(110, 30)
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
 text = "Near Future"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)
 
 [node name="Slot7" type="Marker2D" parent="."]
-position = Vector2(550, 300)
+position = Vector2(425, 510)
 metadata/slot_id = 7
 metadata/label = "Self"
 metadata/meaning = "The querent's inner state"
@@ -96,14 +101,15 @@ metadata/slot_rotation = 0.0
 metadata/force_reversed = false
 
 [node name="SlotLabel7" type="Label" parent="Slot7"]
-position = Vector2(-50, 130)
-size = Vector2(100, 30)
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
 text = "Self"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)
 
 [node name="Slot8" type="Marker2D" parent="."]
-position = Vector2(550, 100)
+position = Vector2(425, 170)
 metadata/slot_id = 8
 metadata/label = "External"
 metadata/meaning = "How others see the querent"
@@ -111,14 +117,15 @@ metadata/slot_rotation = 0.0
 metadata/force_reversed = false
 
 [node name="SlotLabel8" type="Label" parent="Slot8"]
-position = Vector2(-55, 130)
-size = Vector2(110, 30)
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
 text = "External"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)
 
 [node name="Slot9" type="Marker2D" parent="."]
-position = Vector2(550, -100)
+position = Vector2(425, -170)
 metadata/slot_id = 9
 metadata/label = "Hopes & Fears"
 metadata/meaning = "The querent's deepest hopes or fears"
@@ -126,14 +133,15 @@ metadata/slot_rotation = 0.0
 metadata/force_reversed = false
 
 [node name="SlotLabel9" type="Label" parent="Slot9"]
-position = Vector2(-60, 130)
-size = Vector2(120, 30)
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
 text = "Hopes & Fears"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)
 
 [node name="Slot10" type="Marker2D" parent="."]
-position = Vector2(550, -300)
+position = Vector2(425, -510)
 metadata/slot_id = 10
 metadata/label = "Outcome"
 metadata/meaning = "The likely outcome"
@@ -141,8 +149,9 @@ metadata/slot_rotation = 0.0
 metadata/force_reversed = false
 
 [node name="SlotLabel10" type="Label" parent="Slot10"]
-position = Vector2(-55, 130)
-size = Vector2(110, 30)
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
 text = "Outcome"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)

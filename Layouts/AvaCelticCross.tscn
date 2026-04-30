@@ -1,0 +1,158 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="PackedScene" path="res://Layouts/LayoutBase.tscn" id="1_base"]
+
+[node name="AvaCelticCross" instance=ExtResource("1_base")]
+
+[node name="Slot1" type="Marker2D" parent="."]
+position = Vector2(0, 0)
+metadata/slot_id = 1
+metadata/label = "The Querent"
+metadata/meaning = "The heart of the matter; the querent's current situation"
+metadata/slot_rotation = 0.0
+metadata/force_reversed = false
+
+[node name="SlotLabel1" type="Label" parent="Slot1"]
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
+text = "The Querent"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+
+[node name="Slot2" type="Marker2D" parent="."]
+position = Vector2(0, 0)
+metadata/slot_id = 2
+metadata/label = "The Challenge"
+metadata/meaning = "What crosses or challenges card 1 — friend or foe"
+metadata/slot_rotation = 90.0
+metadata/force_reversed = false
+metadata/label_y_offset = 60.0
+
+[node name="Slot3" type="Marker2D" parent="."]
+position = Vector2(-260, 0)
+metadata/slot_id = 3
+metadata/label = "Past"
+metadata/meaning = "Events just passed that still influence the present"
+metadata/slot_rotation = 0.0
+metadata/force_reversed = false
+
+[node name="SlotLabel3" type="Label" parent="Slot3"]
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
+text = "Past"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+
+[node name="Slot4" type="Marker2D" parent="."]
+position = Vector2(0, -400)
+metadata/slot_id = 4
+metadata/label = "Present"
+metadata/meaning = "Foundational past events; what has led here"
+metadata/slot_rotation = 0.0
+metadata/force_reversed = false
+
+[node name="SlotLabel4" type="Label" parent="Slot4"]
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
+text = "Present"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+
+[node name="Slot5" type="Marker2D" parent="."]
+position = Vector2(260, 0)
+metadata/slot_id = 5
+metadata/label = "Short Term"
+metadata/meaning = "What the querent strives toward; best possible outcome; conscious goal"
+metadata/slot_rotation = 0.0
+metadata/force_reversed = false
+
+[node name="SlotLabel5" type="Label" parent="Slot5"]
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
+text = "Short Term"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+
+[node name="Slot6" type="Marker2D" parent="."]
+position = Vector2(0, 400)
+metadata/slot_id = 6
+metadata/label = "Long Term"
+metadata/meaning = "What is approaching in the near term"
+metadata/slot_rotation = 0.0
+metadata/force_reversed = false
+
+[node name="SlotLabel6" type="Label" parent="Slot6"]
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
+text = "Long Term"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+
+[node name="Slot7" type="Marker2D" parent="."]
+position = Vector2(540, 585)
+metadata/slot_id = 7
+metadata/label = "Internal Perception"
+metadata/meaning = "The querent's attitude, inner state, and self-perception"
+metadata/slot_rotation = 0.0
+metadata/force_reversed = false
+
+[node name="SlotLabel7" type="Label" parent="Slot7"]
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
+text = "Internal Perception"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+
+[node name="Slot8" type="Marker2D" parent="."]
+position = Vector2(540, 195)
+metadata/slot_id = 8
+metadata/label = "External Perception"
+metadata/meaning = "How others see the querent; external influences"
+metadata/slot_rotation = 0.0
+metadata/force_reversed = false
+
+[node name="SlotLabel8" type="Label" parent="Slot8"]
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
+text = "External Perception"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+
+[node name="Slot9" type="Marker2D" parent="."]
+position = Vector2(540, -195)
+metadata/slot_id = 9
+metadata/label = "Assistance"
+metadata/meaning = "The querent's deepest hopes or fears — often both at once"
+metadata/slot_rotation = 0.0
+metadata/force_reversed = false
+
+[node name="SlotLabel9" type="Label" parent="Slot9"]
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
+text = "Assistance"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)
+
+[node name="Slot10" type="Marker2D" parent="."]
+position = Vector2(540, -585)
+metadata/slot_id = 10
+metadata/label = "Outcome"
+metadata/meaning = "The likely outcome if the current trajectory continues"
+metadata/slot_rotation = 0.0
+metadata/force_reversed = false
+
+[node name="SlotLabel10" type="Label" parent="Slot10"]
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
+text = "Outcome"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(0, 0, 0, 1)

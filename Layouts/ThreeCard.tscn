@@ -13,11 +13,12 @@ metadata/slot_rotation = 0.0
 metadata/force_reversed = false
 
 [node name="SlotLabel1" type="Label" parent="Slot1"]
-position = Vector2(-50, 130)
-size = Vector2(100, 30)
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
 text = "Past"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 26
+theme_override_colors/font_color = Color(0, 0, 0, 1)
 
 [node name="Slot2" type="Marker2D" parent="."]
 position = Vector2(0, 0)
@@ -28,11 +29,12 @@ metadata/slot_rotation = 0.0
 metadata/force_reversed = false
 
 [node name="SlotLabel2" type="Label" parent="Slot2"]
-position = Vector2(-50, 130)
-size = Vector2(100, 30)
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
 text = "Present"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 26
+theme_override_colors/font_color = Color(0, 0, 0, 1)
 
 [node name="Slot3" type="Marker2D" parent="."]
 position = Vector2(220, 0)
@@ -43,8 +45,9 @@ metadata/slot_rotation = 0.0
 metadata/force_reversed = false
 
 [node name="SlotLabel3" type="Label" parent="Slot3"]
-position = Vector2(-50, 130)
-size = Vector2(100, 30)
+position = Vector2(-100, -160)
+size = Vector2(200, 30)
 text = "Future"
 horizontal_alignment = 1
 theme_override_font_sizes/font_size = 26
+theme_override_colors/font_color = Color(0, 0, 0, 1)

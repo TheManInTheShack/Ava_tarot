@@ -31,5 +31,25 @@
         {"slot_id": 10, "label": "Outcome",              "x":  550, "y": -300, "rotation":  0, "meaning": "The likely outcome if the current trajectory continues"}
       ]
     }
+  ,
+    {
+      "layout_id": "ava-celtic-cross",
+      "name": "Ava's Celtic Cross",
+      "description": "Ava's preferred ten-card spread — a personal variation on the classic Celtic Cross with relabeled positions and her own interpretive frame.",
+      "card_orientation": "mixed",
+      "godot_scene": "res://Layouts/AvaCelticCross.tscn",
+      "slots": [
+        {"slot_id":  1, "label": "The Querent",         "x":   0, "y":    0, "rotation":  0, "meaning": "The heart of the matter; the querent's current situation"},
+        {"slot_id":  2, "label": "The Challenge",       "x":   0, "y":    0, "rotation": 90, "meaning": "What crosses or challenges card 1 — friend or foe"},
+        {"slot_id":  3, "label": "Past",                "x": -200, "y":   0, "rotation":  0, "meaning": "Events just passed that still influence the present"},
+        {"slot_id":  4, "label": "Present",             "x":   0, "y": -300, "rotation":  0, "meaning": "Foundational past events; what has led here"},
+        {"slot_id":  5, "label": "Short Term",          "x":  200, "y":   0, "rotation":  0, "meaning": "What the querent strives toward; best possible outcome; conscious goal"},
+        {"slot_id":  6, "label": "Long Term",           "x":   0, "y":  300, "rotation":  0, "meaning": "What is approaching in the near term"},
+        {"slot_id":  7, "label": "Internal Perception", "x":  550, "y":  450, "rotation":  0, "meaning": "The querent's attitude, inner state, and self-perception"},
+        {"slot_id":  8, "label": "External Perception", "x":  550, "y":  150, "rotation":  0, "meaning": "How others see the querent; external influences"},
+        {"slot_id":  9, "label": "Assistance",          "x":  550, "y": -150, "rotation":  0, "meaning": "The querent's deepest hopes or fears — often both at once"},
+        {"slot_id": 10, "label": "Outcome",             "x":  550, "y": -450, "rotation":  0, "meaning": "The likely outcome if the current trajectory continues"}
+      ]
+    }
   ]
 }

@@ -20,7 +20,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				_pan_start_screen = event.position
 				_pan_start_cam    = global_position
 	elif event is InputEventMouseMotion and _pan_active:
-		var delta := (event.position - _pan_start_screen) / zoom.x
+		var delta: Vector2 = (event.position - _pan_start_screen) / zoom.x
 		global_position = _pan_start_cam - delta
 
 func _input(event: InputEvent) -> void:

@@ -1,3 +1,12 @@
+# Godot 4 generated files
+.godot/
+*.uid
+*.import
+export/
+
+# Obsidian workspace state (not project files)
+.obsidian/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

@@ -1,300 +1,209 @@
-# CLAUDE.md — Ava Tarot Project Handoff
+# CLAUDE.md — Ava Tarot
 
-This file is read automatically by Claude Code at session start. It contains everything needed to continue development without prior conversation context.
+Read this first in any new session. It reflects the current built state.
 
 ---
 
 ## What This Is
 
-**Ava Tarot** is an interactive digital tarot deck built in Godot 4, deployed as a PWA (web app installable to phone home screen). It is a **tool, not a game** — a digital card table where the user can shuffle, deal, flip, and arrange tarot cards in standard spread layouts or freeform.
-
-It is intended for use on a phone (portrait orientation, touch drag-and-drop). The primary user is the owner's sister.
+A digital tarot card table built in Godot 4, exported as a PWA for phone use (portrait, touch). Primary user is the owner's sister, who does readings for clients. **It is a tool, not a game** — no interpretation logic, just cards and layouts.
 
 ---
 
-## What This Is Not
+## Current State (as of April 2026)
 
-- Not a game engine project with game logic
-- Not a native Android/iOS app (no app store, no Xcode, no Google Play)
-- Not an AI reading tool (no interpretation logic — just the cards and layouts)
+The Godot project is fully functional. The Flask backend is scaffolded but not yet deployed. Next immediate milestone: deploy to DigitalOcean droplet.
+
+### What works
+- Full 78-card deck in `Data/cards.json` with 286 graph edges
+- Drag, tap-to-select, long-press-to-flip (face-down: 0.55s, face-up: 1.1s)
+- Card info panel: works for both face-up and face-down cards; shows name/arcana/keywords/graph neighbors; rotate (< >) and flip buttons; rotation works pre-flip so cards can be set reversed before revealing
+- Three layouts: Three-Card, Celtic Cross (classic), Ava's Celtic Cross — selectable via top dropdown
+- Slot system: snap-to-slot (80px radius), slot labels above/card labels below, superposition (second card on same slot) tracked separately
+- Floating card name label suppressed when card is in a slot (slot labels take over)
+- Next Slot button: deals and places cards sequentially into layout slots
+- Deck manager: shuffle, deal, next slot, remaining count
+- Save Reading: captures all face-up slotted cards to `user://readings.json` with placement + metrics; duplicate guard (same layout + same cards blocks re-save)
+- Reading History panel: full-screen overlay, sorted newest-first, color fingerprint swatch per reading, aggregate stats header
+- Camera pan and pinch-zoom
+- Z-ordering: interacted card always on top; clicking exposed edge of buried card cycles z-order
+- Card sprites scale to fit any source image resolution
+
+### What is not yet done
+- Backend not deployed (server/ is written and tested locally, not running on droplet)
+- No Godot WebSocket client (role-based guest/admin mode not wired up)
+- No card art (placeholder back image at Assets/Images/card_back_default.png, 420×720)
+- No art-pack switching
+- Python vault→cards.json export script not written (cards.json maintained manually)
+- PWA not deployed
 
 ---
 
-## Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Knowledge graph / content | Obsidian vault (Markdown files in this repo) |
-| Interactive card engine | Godot 4.x — GDScript |
-| Deployment | Godot HTML5 export → PWA |
-| Hosting | Netlify (preferred) or itch.io for testing |
-| Card metadata pipeline | Python script (TBD) — parses vault MD → `cards.json` for Godot |
-
----
-
-## Active Branch
+## Repo Layout
 
 ```
-claude/setup-obsidian-godot-cards-1mDbC
-```
-
-All work goes on this branch. Do not push to `main` without explicit instruction.
-
----
-
-## Repository Layout
-
-```
-Ava_tarot/
-├── CLAUDE.md                        ← you are here
-├── README.md                        ← human-facing project overview
-│
-├── .obsidian/                       ← Obsidian workspace config (open repo as vault)
-│   ├── app.json                     ← editor settings
-│   ├── workspace.json               ← panel layout: explorer left, graph right
-│   └── graph.json                   ← graph color groups by arcana/suit
-│
-├── _Index.md                        ← vault root / navigation hub
-│
-├── Meta/
-│   ├── Card-Schema.md               ← canonical schema for card notes (READ THIS FIRST)
-│   ├── Edge-Types.md                ← taxonomy of graph edge relationship types
-│   └── Graph-Index.md               ← 78-node inventory with completion status
-│
+ava_tarot/
+├── CLAUDE.md                  ← you are here
+├── project.godot              ← Godot 4, GL Compatibility, 1080×1920 viewport, 540×960 dev window
+├── Main.tscn / Main.gd        ← orchestrator: layout, deck, card spawning, camera, UI wiring
+├── CameraController.gd        ← pan (one-finger on empty table) + pinch-zoom
 ├── Cards/
-│   ├── Major Arcana/
-│   │   ├── _Major-Arcana-Index.md   ← Fool's Journey overview + card table
-│   │   ├── 00-The-Fool.md           ← COMPLETE
-│   │   ├── 01-The-Magician.md       ← COMPLETE
-│   │   ├── 02-The-High-Priestess.md ← COMPLETE
-│   │   └── (MA-03 through MA-21 are stubs — not yet created as files)
+│   ├── CardBase.tscn/.gd      ← core card: drag/flip/select, Sprite2D auto-scaled to 140×240
+│   ├── Major Arcana/          ← 22 vault .md files (MA-00 through MA-21)
 │   └── Minor Arcana/
-│       ├── _Minor-Arcana-Index.md
-│       ├── Wands/
-│       │   ├── _Wands-Index.md
-│       │   └── Wands-Ace.md         ← COMPLETE
-│       ├── Cups/
-│       │   └── _Cups-Index.md       ← index only, cards are stubs
-│       ├── Swords/
-│       │   └── _Swords-Index.md     ← index only
-│       └── Pentacles/
-│           └── _Pentacles-Index.md  ← index only
-│
+│       ├── Wands/             ← 14 vault .md files
+│       ├── Cups/              ← 14 vault .md files
+│       ├── Swords/            ← 14 vault .md files
+│       └── Pentacles/         ← 14 vault .md files
 ├── Layouts/
-│   ├── _Layout-Schema.md            ← slot coordinate conventions
-│   ├── Three-Card.md                ← COMPLETE (3 slots, portrait row)
-│   └── Celtic-Cross.md              ← COMPLETE (10 slots, cross + staff)
-│
-├── Godot/                           ← Design notes only (Godot project not yet created)
-│   ├── _Godot-Project-Notes.md      ← architecture, file structure, PWA deployment
-│   └── Card-Node-Design.md          ← CardBase scene/script spec, touch input, camera
-│
-└── Assets/
-    ├── Images/                      ← card art goes here (naming: MA-00-The-Fool.png)
-    └── Fonts/
-```
-
-**The Godot project files (`.tscn`, `.gd`, `project.godot`) do not exist yet.** The `Godot/` folder contains design specifications only. Building the actual Godot project is the next major phase.
-
----
-
-## System 1: Obsidian Vault / Knowledge Graph
-
-Open this repo as an Obsidian vault. The vault doubles as:
-1. A living knowledge base about tarot cards
-2. The source of truth for card metadata that feeds the Godot app
-
-### How a card note is structured
-
-```markdown
----                              ← YAML frontmatter = node properties
-type: card
-card_id: MA-00                   ← unique ID (see ID scheme below)
-name: The Fool
-arcana: Major
-number: 0
-element: Air
-planet: Uranus
-zodiac: null
-keywords_upright: [beginnings, innocence, ...]
-keywords_reversed: [recklessness, ...]
-image: MA-00-The-Fool.png
-godot_scene: res://Cards/Major/TheFool.tscn
-status: complete                 ← complete | in-progress | stub
----
-
-# Card Name
-
-[Article: imagery, symbolism, meaning]
-
-## Upright
-## Reversed
-## Elemental and Astrological
-## Numerology  (optional)
-
-## Adjacency List              ← graph edges FROM this card
-
-| target_id | target_name | relationship | weight | properties |
-|-----------|-------------|--------------|--------|------------|
-| MA-01 | [[01-The-Magician]] | sequential | 1.0 | {"notes": "..."} |
-```
-
-### Card ID scheme
-
-| Prefix | Cards |
-|--------|-------|
-| `MA-00` – `MA-21` | Major Arcana |
-| `WA-01` – `WA-14` | Wands (01=Ace, 11=Page, 12=Knight, 13=Queen, 14=King) |
-| `CU-01` – `CU-14` | Cups |
-| `SW-01` – `SW-14` | Swords |
-| `PE-01` – `PE-14` | Pentacles |
-
-### Edge relationship types (summary)
-
-| Type | Meaning |
-|------|---------|
-| `sequential` | Consecutive on Fool's Journey |
-| `sequential_cycle` | World → Fool closure |
-| `complementary` | Paired opposites (e.g. Magician / High Priestess) |
-| `shadow` | One card is the dark reflection of the other |
-| `thematic` | Shared themes or symbols |
-| `elemental` | Same elemental affinity |
-| `astrological` | Same planet or zodiac ruler |
-| `numerical` | Same pip number across suits |
-| `archetype` | Minor card embodies a Major Arcana archetype |
-
-Full definitions: `Meta/Edge-Types.md`
-
-### Current graph status
-
-- **Complete nodes**: MA-00, MA-01, MA-02, WA-01 (4 of 78)
-- **22 edges** declared across those 4 nodes
-- **74 cards** remain as stubs (no file yet for most; suit index files exist)
-- `Meta/Graph-Index.md` tracks the full inventory
-
-### Adding a new card
-
-1. Create the file at the correct path (e.g. `Cards/Major Arcana/03-The-Empress.md`)
-2. Copy the frontmatter structure from an existing complete card
-3. Write the article sections (Upright, Reversed, Elemental, optionally Numerology)
-4. Add the `## Adjacency List` table — at minimum one `sequential` edge for Major Arcana
-5. Update `status: complete` in frontmatter
-6. Update the edge count in `Meta/Graph-Index.md`
-
----
-
-## System 2: Godot Project (Design Phase — Not Yet Built)
-
-Full specs are in `Godot/_Godot-Project-Notes.md` and `Godot/Card-Node-Design.md`. Summary:
-
-### What to build
-
-```
-res://
-├── Cards/
-│   ├── CardBase.tscn + CardBase.gd     ← drag, tap-vs-drag, flip, orientation
-│   ├── Major/ and Minor/               ← one .tscn per card (inherits CardBase)
-├── Layouts/
-│   ├── LayoutBase.tscn + LayoutBase.gd ← slot snapping logic
+│   ├── LayoutBase.gd          ← slot snapping, CardLabel1/2 below each slot, superposition tracking
+│   ├── LayoutBase.tscn        ← base scene instanced by all layout scenes
 │   ├── ThreeCard.tscn
-│   └── CelticCross.tscn
+│   ├── CelticCross.tscn       ← classic 10-slot layout
+│   └── AvaCelticCross.tscn    ← Ava's preferred variant (relabeled positions, adjusted spacing)
 ├── UI/
-│   ├── DeckManager.tscn                ← shuffle + draw UI
-│   ├── LayoutSelector.tscn
-│   └── CardInfo.tscn                   ← sidebar: card details + graph neighbors
-├── Data/
-│   ├── cards.json                      ← exported from vault
-│   └── layouts.json
+│   ├── CardInfo.tscn/.gd      ← card detail panel: works face-up and face-down; rotate/flip buttons
+│   ├── DeckManager.tscn/.gd   ← shuffle, deal, next slot, save, history buttons
+│   ├── LayoutSelector.tscn/.gd ← top-bar dropdown, populates from layouts.json
+│   └── ReadingHistory.tscn/.gd ← full-screen reading log; color fingerprint; aggregate stats
 ├── Autoloads/
-│   ├── DeckState.gd                    ← deck order + per-card orientation (reversed bool)
-│   └── GraphDB.gd                      ← in-memory graph from cards.json
-└── project.godot
+│   ├── DeckState.gd           ← deck order, draw, is_reversed; shuffle excludes in-play cards
+│   └── GraphDB.gd             ← loads cards.json at runtime; get_node_data / get_neighbors
+├── Data/
+│   ├── cards.json             ← 78 nodes, 286 edges — source of truth for card data
+│   └── layouts.json           ← layout definitions with slot positions and metadata
+├── Meta/
+│   ├── Card-Schema.md         ← vault card frontmatter schema
+│   ├── Graph-Index.md         ← all 78 nodes with Obsidian links and edge counts
+│   └── Reading-Model.md       ← data model design: readings, scenarios, phase space
+├── Assets/Images/             ← card_back_default.png (420×720 placeholder)
+├── tools/
+│   ├── fetch_rider_waite.py   ← image fetch utility
+│   └── generate_readings.py   ← synthetic reading generator (usage: python tools/generate_readings.py [count] [layout])
+└── server/                    ← Flask backend (scaffolded, not yet deployed)
+    ├── wsgi.py                ← gunicorn entry point
+    ├── app.py                 ← Flask + flask-sock init
+    ├── auth.py                ← bcrypt login, @login_required decorator
+    ├── sessions.py            ← in-memory sessions, 5h TTL, background cleanup
+    ├── routes.py              ← REST API: login, session, card/edge CRUD, reading CRUD
+    ├── readings.py            ← file-backed reading CRUD on Data/readings.json
+    ├── sockets.py             ← WebSocket: /ws/admin/<id> and /ws/guest/<id>?token=
+    ├── requirements.txt
+    ├── hash_password.py       ← run to generate bcrypt hashes for .env
+    └── .env.example           ← ADMIN_PASSWORD_HASH, DEV_PASSWORD_HASH, FLASK_SECRET, WHEREBY_ROOM_URL
 ```
 
-### Critical project settings (set these first)
+---
+
+## Key Architecture Decisions
+
+| Decision | Detail |
+|----------|--------|
+| Godot 4 HTML5 export | PWA, no app store |
+| 1080×1920 viewport, canvas_items stretch | Fills any phone screen correctly |
+| Node2D cards (not Control) | Free spatial placement, not UI flow |
+| Area2D collision input | Cards handle their own drag/tap/flip |
+| Z-index counter in Main.gd | Monotonically increasing; interacted card always on top |
+| `_higher_card_at_mouse()` | Checks if higher card's bounds actually contain the mouse (not just rect overlap) |
+| `_draw()` + `draw_set_transform` | World-space horizontal card label; Control/Camera2D mismatch is why Label nodes don't work here |
+| `in_slot` flag on CardBase | Suppresses `_draw()` label when card is in a layout slot |
+| LayoutBase creates slot labels at runtime | `_ready()` adds CardLabel1/CardLabel2 Label nodes below each Marker2D; `label_y_offset` metadata overrides position (used by crossing slot) |
+| Superposition tracking | `assigned_card` = primary, `superposition_card` = second card on same slot; drag-away promotes super to primary |
+| cards.json at runtime | GraphDB autoload; vault markdown is the human-editable source |
+| Reading capture | `user://readings.json` (Godot app data); metrics vector: major_ratio, suit fracs, inversion_ratio, court_ratio |
+| Reading fingerprint color | HSV: H=dominant suit element, S=major arcana density, V dims with inversion |
+| Flask + flask-sock + gevent | Lightweight WebSocket backend, same pattern as cholt project |
+| Two admin users | `admin` (sister), `dev` (owner) — separate bcrypt hashes in env vars |
+| Whereby for voice/video | Persistent room URL in env var, returned alongside guest_url on session start |
+
+---
+
+## LayoutBase Slot System
+
+Each Marker2D slot in a layout scene has these metadata keys:
+
+| Key | Type | Purpose |
+|-----|------|---------|
+| `slot_id` | int | ordering (1-based) |
+| `label` | String | display name (shown in static SlotLabel above slot) |
+| `meaning` | String | interpretive meaning (informational only) |
+| `slot_rotation` | float | card rotation when placed (0 or 90) |
+| `force_reversed` | bool | forces is_reversed=true on place |
+| `assigned_card` | CardBase | primary card in slot (set at runtime) |
+| `superposition_card` | CardBase | second card stacked on slot (set at runtime) |
+| `label_y_offset` | float | offsets CardLabel1/2 downward (used by crossing slot to avoid overlap) |
+
+`LayoutBase._ready()` adds `CardLabel1` and `CardLabel2` Label nodes (white, 18pt, z=200) as children of each Marker2D. These update reactively via `card_flipped`, `card_drag_started`, and `card_orientation_changed` signals.
+
+---
+
+## Reading Data Format
+
+Saved to `user://readings.json` (Windows: `%APPDATA%\Godot\app_userdata\Ava Tarot\readings.json`):
+
+```json
+{
+  "reading_id": "reading-20260426-123456",
+  "layout_id": "ava-celtic-cross",
+  "timestamp": "2026-04-26T19:00:00",
+  "querent": "",
+  "notes": "",
+  "placements": [
+    { "slot_id": 1, "slot_label": "The Querent", "card_id": "MA-13",
+      "card_name": "Death", "orientation": "placed_upright" }
+  ],
+  "metrics": {
+    "major_ratio": 0.3, "wands_frac": 0.1, "cups_frac": 0.2,
+    "swords_frac": 0.2, "pents_frac": 0.2,
+    "inversion_ratio": 0.3, "court_ratio": 0.2
+  }
+}
+```
+
+Orientation values: `placed_upright`, `placed_reversed`, `crosses_upright`, `crosses_reversed`.
+Only face-up, slotted cards are captured. Duplicate guard checks last saved reading.
+
+---
+
+## Session / Backend Design
+
+- Admin logs in → POST /api/session/start → gets `guest_url` (tarot link) + `call_url` (Whereby)
+- Guest URL format: `?role=guest&session=<id>&token=<token>`
+- Guest connects to `/ws/guest/<id>?token=<token>` — read-only, receives state broadcasts
+- Admin connects to `/ws/admin/<id>` — sends `{"type":"state","payload":{...}}` to mirror to guest
+- Session expires: admin disconnect, explicit /api/session/end, or 5-hour TTL
+- One active session per admin user at a time
+- Card data editable via REST: GET/PUT/POST /api/cards, GET/POST/DELETE /api/edges
+- Readings: GET/POST `/api/readings`, GET/PUT/DELETE `/api/readings/<reading_id>`
+
+---
+
+## Godot Project Settings
 
 | Setting | Value |
 |---------|-------|
-| Project Settings > Input > Pointing > **Emulate Mouse from Touch** | **ON** |
-| Display > Window > Viewport Width | 1080 |
-| Display > Window > Viewport Height | 1920 |
-| Display > Window > Content Scale Mode | `canvas_items` |
-| Display > Window > Content Scale Aspect | `keep` |
-
-### Touch input pattern (IMPORTANT)
-
-Cards use a `DRAG_THRESHOLD` (12px) to distinguish tap from drag:
-- Press + release without moving → `card_clicked` signal → flip or show info
-- Press + move > 12px → enter drag mode → `card_dropped` signal on release
-
-Camera2D handles pan (one/two finger on empty table) and pinch-zoom. Cards consume their own input events so the camera doesn't interfere.
-
-See `Godot/Card-Node-Design.md` for full GDScript snippets.
-
-### PWA deployment
-
-- Export: Godot HTML5 export with **Progressive Web App** checkbox ON
-- Host on **Netlify** (required for COOP/COEP headers — GitHub Pages won't work without workarounds)
-- Add `netlify.toml` to repo root:
-  ```toml
-  [[headers]]
-    for = "/*"
-    [headers.values]
-      Cross-Origin-Opener-Policy = "same-origin"
-      Cross-Origin-Embedder-Policy = "require-corp"
-  ```
-- End user: open URL → "Add to Home Screen" → full-screen app icon, works offline
-
-See `Godot/_Godot-Project-Notes.md` for complete deployment section.
-
-### Data pipeline: Vault → Godot
-
-A Python export script (not yet written) will:
-1. Parse all `Cards/**/*.md` frontmatter → node properties
-2. Parse `## Adjacency List` tables → edge list
-3. Write `Data/cards.json` + `Data/layouts.json`
-
-`GraphDB.gd` loads this JSON at runtime. `CardInfo` panel queries it when a card is tapped.
+| Renderer | GL Compatibility |
+| Viewport | 1080 × 1920 |
+| Dev window override | 540 × 960 |
+| Stretch mode | canvas_items |
+| Emulate mouse from touch | ON |
+| Autoloads | DeckState, GraphDB |
 
 ---
 
-## Key Decisions Already Made
+## Known GDScript / Godot Gotchas (already fixed, will recur)
 
-These were discussed and chosen — don't re-open unless the user brings it up:
-
-| Decision | Reason |
-|----------|--------|
-| Godot 4 (not Flutter, React Native, etc.) | User's choice; supports all needed features |
-| Web/PWA only, no native apps | User explicitly does not want app store overhead |
-| Obsidian vault in same repo as code | Knowledge graph and app share one source of truth |
-| Node2D cards (not Control) | Free spatial placement, not constrained to UI layout flow |
-| Cards.json loaded at runtime (not hardcoded) | Vault stays authoritative; no duplication |
-| Portrait base viewport 1080×1920 | Primary use is phone, portrait orientation |
-| Netlify for hosting (not GitHub Pages) | Pages can't set COOP/COEP headers natively |
+- **JSON null fields**: `.get("key", "")` returns `null` (not `""`) when key exists with null value. Pattern: `var v = data.get("key"); var s: String = v if v is String else ""`
+- **`arcana` field value**: is `"Major"` in cards.json, not `"Major Arcana"` — check `== "Major"`
+- **`slot_id` type**: Godot stores metadata as-typed; old .tscn files may produce float. Always cast: `int(slot.get_meta("slot_id", 0))`
+- **`remove_meta` not `erase_meta`**: Godot 4 uses `Node.remove_meta()` — `erase_meta` doesn't exist
+- **`Array[String]`** assignment from untyped Array: use `.assign()` not `= arr.duplicate()`
+- **`to_local()` return type**: needs explicit `: Vector2` annotation for type inference
+- **Label (Control) as child of Marker2D (Node2D)**: works — `position` is in parent's local 2D space; z_index must be set explicitly (labels default to 0, cards may be higher)
+- **`_draw()` world-space text**: use `draw_set_transform(anchor_screen, -rotation, Vector2.ONE)` to keep text horizontal regardless of card rotation
 
 ---
 
-## What Comes Next
+## Deployment Target
 
-Roughly in order:
-
-1. **Fill out remaining 74 card notes** in the vault — content work, can be done incrementally
-2. **Write the Python export script** (`tools/export_vault.py`) to produce `Data/cards.json`
-3. **Create the Godot project** — initialize `project.godot`, set the project settings above
-4. **Build `CardBase.tscn` + `CardBase.gd`** — the tap/drag/flip foundation everything else depends on
-5. **Build `LayoutBase`** + `ThreeCard.tscn` and `CelticCross.tscn` with slot snapping
-6. **Build `DeckState.gd` + `GraphDB.gd`** autoloads
-7. **Build the UI** — `DeckManager`, `LayoutSelector`, `CardInfo` panel
-8. **Add card art** to `Assets/Images/` (naming: `MA-00-The-Fool.png`, etc.)
-9. **PWA export + Netlify deploy**
-
----
-
-## Conventions
-
-- Card file names: `00-The-Fool.md`, `01-The-Magician.md` (zero-padded number, hyphenated name)
-- Minor Arcana: `Wands-Ace.md`, `Wands-Two.md`, … `Wands-King.md`
-- Image files: `MA-00-The-Fool.png`, `WA-01-Ace-of-Wands.png`
-- Godot scene names: `TheFool.tscn`, `TheMagician.tscn`, `WandsAce.tscn` (PascalCase, no hyphens)
-- All new Markdown content files go in `Cards/`, `Layouts/`, or `Meta/` — not at repo root
-- `CLAUDE.md`, `README.md`, and `netlify.toml` live at repo root
+DigitalOcean droplet, nginx + gunicorn, same pattern as the `cholt` project in `dev/projects/cholt/`. Godot PWA export goes to a static host. Note: Netlify requires COOP/COEP headers for SharedArrayBuffer — check export settings.

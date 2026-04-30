@@ -1,10 +1,11 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://Main.gd" id="1_main"]
 [ext_resource type="Script" path="res://CameraController.gd" id="2_cam"]
 [ext_resource type="PackedScene" path="res://UI/DeckManager.tscn" id="3_deckmgr"]
 [ext_resource type="PackedScene" path="res://UI/LayoutSelector.tscn" id="4_layoutsel"]
 [ext_resource type="PackedScene" path="res://UI/CardInfo.tscn" id="5_cardinfo"]
+[ext_resource type="PackedScene" path="res://UI/ReadingHistory.tscn" id="6_history"]
 
 [node name="Main" type="Node2D"]
 script = ExtResource("1_main")
@@ -22,3 +23,5 @@ layer = 10
 [node name="LayoutSelector" parent="UILayer" instance=ExtResource("4_layoutsel")]
 
 [node name="CardInfo" parent="UILayer" instance=ExtResource("5_cardinfo")]
+
+[node name="ReadingHistory" parent="UILayer" instance=ExtResource("6_history")]
