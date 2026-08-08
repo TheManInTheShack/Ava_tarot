@@ -8,33 +8,31 @@
 
 config_version=5
 
-[animation]
-
-compatibility/default_parent_skeleton_in_mesh_instance_3d=true
-
 [application]
 
-config/name="Ava Tarot"
-config/description="Interactive digital tarot deck"
-config/version="0.1.0"
-run/main_scene="res://Main.tscn"
-config/features=PackedStringArray("4.6", "GL Compatibility")
-config/icon="res://icon.svg"
+config/name="Paratarot"
+config/description="Dual-view tarot reading table — controller/client realtime sync"
+run/main_scene="res://Scenes/Main.tscn"
+config/features=PackedStringArray("4.6")
+boot_splash/bg_color=Color(0.0431373, 0.0509804, 0.0313726, 1)
+boot_splash/show_image=false
 
 [autoload]
 
-DeckState="*res://Autoloads/DeckState.gd"
-GraphDB="*res://Autoloads/GraphDB.gd"
+ApiClient="*res://Autoloads/ApiClient.gd"
 
 [display]
 
 window/size/viewport_width=1080
 window/size/viewport_height=1920
-window/size/window_width_override=540
-window/size/window_height_override=960
 window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[input]
+
+emulate_touch_from_mouse=true
 
 [rendering]
 
 renderer/rendering_method="gl_compatibility"
-renderer/rendering_method.mobile="gl_compatibility"
+environment/defaults/default_clear_color=Color(0.071, 0.071, 0.071, 1)

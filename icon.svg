@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="16" fill="#1a0840"/>
-  <rect x="44" y="18" width="40" height="70" rx="5" fill="#d4af7a" stroke="#c49a5a" stroke-width="2"/>
-  <text x="64" y="62" text-anchor="middle" font-size="30" fill="#1a0840" font-family="serif">★</text>
-  <text x="64" y="112" text-anchor="middle" font-size="14" fill="#d4af7a" font-family="serif">AVA</text>
-</svg>
