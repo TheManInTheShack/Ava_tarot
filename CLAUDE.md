@@ -1,4 +1,4 @@
-# CLAUDE.md — Ava Tarot
+# CLAUDE.md — Paratarot (formerly Ava Tarot)
 
 Read this first in any new session. It reflects the current built state.
 
@@ -6,36 +6,68 @@ Read this first in any new session. It reflects the current built state.
 
 ## What This Is
 
-A digital tarot card table built in Godot 4, exported as a PWA for phone use (portrait, touch). Primary user is the owner's sister, who does readings for clients. **It is a tool, not a game** — no interpretation logic, just cards and layouts.
+A dual-view tarot reading table built in Godot 4, deployed as a browser app on
+`avareads.com`. Ava (the controller) runs live readings; a client logs into
+their own real account and sees a **controller-curated subset** of the
+reading — not a full mirror — via a live, controller-owned ACL over a
+realtime WebSocket sync. **It is a tool, not a game** — no interpretation
+logic, just cards, a layout, and who's allowed to see/touch what right now.
+
+This is a from-scratch rewrite (2026-08-08) of the original prototype. The
+old Godot game logic (drag/flip/slot system, three layouts, reading history
+UI) and its standalone Flask+WebSocket backend (anonymous guest-token URLs,
+full unfiltered state mirror, its own separate login) are both retired —
+see git history before `ae54139` for reference if a past pattern is worth
+consulting, but nothing there should be built on directly.
 
 ---
 
-## Current State (as of April 2026)
+## Current State (as of 2026-08-08)
 
-The Godot project is fully functional. The Flask backend is scaffolded but not yet deployed. Next immediate milestone: deploy to DigitalOcean droplet.
+**Deployed and verified working end-to-end on avareads.com**, tested live
+across two real devices (phone as client, second session as controller):
+session start → deal → controller toggles a card visible + flippable →
+client sees it appear → client taps to flip → reflects on both sides →
+End Reading writes a Scenario node + Client node + placement edges into the
+`tarot-deck` graph, confirmed openable in Paradotz afterward.
 
 ### What works
-- Full 78-card deck in `Data/cards.json` with 286 graph edges
-- Drag, tap-to-select, long-press-to-flip (face-down: 0.55s, face-up: 1.1s)
-- Card info panel: works for both face-up and face-down cards; shows name/arcana/keywords/graph neighbors; rotate (< >) and flip buttons; rotation works pre-flip so cards can be set reversed before revealing
-- Three layouts: Three-Card, Celtic Cross (classic), Ava's Celtic Cross — selectable via top dropdown
-- Slot system: snap-to-slot (80px radius), slot labels above/card labels below, superposition (second card on same slot) tracked separately
-- Floating card name label suppressed when card is in a slot (slot labels take over)
-- Next Slot button: deals and places cards sequentially into layout slots
-- Deck manager: shuffle, deal, next slot, remaining count
-- Save Reading: captures all face-up slotted cards to `user://readings.json` with placement + metrics; duplicate guard (same layout + same cards blocks re-save)
-- Reading History panel: full-screen overlay, sorted newest-first, color fingerprint swatch per reading, aggregate stats header
-- Camera pan and pinch-zoom
-- Z-ordering: interacted card always on top; clicking exposed edge of buried card cycles z-order
-- Card sprites scale to fit any source image resolution
+- Public-tier login (`client_test` account, role `public`) → auto-redirects
+  to `/portal` → "Enter Reading" → client mode, no menus
+- Controller login (admin/dev/user role) → dashboard → Paratarot card →
+  controller mode with rollup side panel
+- One layout: Three-Card (Past/Present/Future), fixed slot positions, no
+  drag yet
+- Session lifecycle: Start Reading (creates a session server-side, or
+  rejoins the site's one active session), End Reading (writes the
+  checkpoint, ends the session for all connected clients)
+- Deal Three-Card: picks 3 random cards from `Data/cards.json`, face-down,
+  ~25% reversed
+- Tap-to-flip: controller can flip any of its own cards directly; client can
+  flip only a card the controller has currently granted the `flip` action on
+- Live ACL: per-slot visible/actions toggles in the Client Access rollup
+  section, broadcast immediately over the WebSocket
+- Reading checkpoint on End Reading: Client node (if a client connected),
+  Scenario node, PLACED edges from Scenario → each dealt card — written
+  through the same access-checked graph-write path every other Grant app
+  uses, into the existing `tarot-deck` graph (grows in place, doesn't create
+  a new graph per reading)
 
-### What is not yet done
-- Backend not deployed (server/ is written and tested locally, not running on droplet)
-- No Godot WebSocket client (role-based guest/admin mode not wired up)
-- No card art (placeholder back image at Assets/Images/card_back_default.png, 420×720)
-- No art-pack switching
-- Python vault→cards.json export script not written (cards.json maintained manually)
-- PWA not deployed
+### What is not yet done (deliberately deferred, not forgotten)
+- Card dragging / freeform placement (cards are fixed to their slot)
+- Celtic Cross / Ava's Celtic Cross layouts (only Three-Card exists)
+- `point` and `pick` ACL actions (protocol supports them; only `flip` is
+  wired up client-side)
+- Card info/meanings panel, reading history browser
+- Card art on the table itself (deck data has `image` filenames in
+  `Assets/Images/`, but `CardNode._draw()` currently only renders a
+  placeholder + name text, not the actual card texture)
+- Stats-model nodes as their own queryable type (reading metrics currently
+  just live as empty properties on the Scenario node)
+- Kuzu-as-primary-store migration on the Grant side (separate, near-term
+  session — see `Grant/docz/infrastructure/data-architecture.md`) — until
+  then, cross-reading trend queries over many Scenario nodes are JSONB-blob
+  full-loads, fine at current scale, not built yet anyway
 
 ---
 
@@ -44,54 +76,45 @@ The Godot project is fully functional. The Flask backend is scaffolded but not y
 ```
 ava_tarot/
 ├── CLAUDE.md                  ← you are here
-├── project.godot              ← Godot 4, GL Compatibility, 1080×1920 viewport, 540×960 dev window
-├── Main.tscn / Main.gd        ← orchestrator: layout, deck, card spawning, camera, UI wiring
-├── CameraController.gd        ← pan (one-finger on empty table) + pinch-zoom
-├── Cards/
-│   ├── CardBase.tscn/.gd      ← core card: drag/flip/select, Sprite2D auto-scaled to 140×240
-│   ├── Major Arcana/          ← 22 vault .md files (MA-00 through MA-21)
-│   └── Minor Arcana/
-│       ├── Wands/             ← 14 vault .md files
-│       ├── Cups/              ← 14 vault .md files
-│       ├── Swords/            ← 14 vault .md files
-│       └── Pentacles/         ← 14 vault .md files
-├── Layouts/
-│   ├── LayoutBase.gd          ← slot snapping, CardLabel1/2 below each slot, superposition tracking
-│   ├── LayoutBase.tscn        ← base scene instanced by all layout scenes
-│   ├── ThreeCard.tscn
-│   ├── CelticCross.tscn       ← classic 10-slot layout
-│   └── AvaCelticCross.tscn    ← Ava's preferred variant (relabeled positions, adjusted spacing)
-├── UI/
-│   ├── CardInfo.tscn/.gd      ← card detail panel: works face-up and face-down; rotate/flip buttons
-│   ├── DeckManager.tscn/.gd   ← shuffle, deal, next slot, save, history buttons
-│   ├── LayoutSelector.tscn/.gd ← top-bar dropdown, populates from layouts.json
-│   └── ReadingHistory.tscn/.gd ← full-screen reading log; color fingerprint; aggregate stats
+├── project.godot              ← Godot 4, GL Compatibility, 1080×1920, canvas_items stretch
+├── export_presets.cfg         ← Web preset; thread_support off, no COOP/COEP required
 ├── Autoloads/
-│   ├── DeckState.gd           ← deck order, draw, is_reversed; shuffle excludes in-play cards
-│   └── GraphDB.gd             ← loads cards.json at runtime; get_node_data / get_neighbors
+│   └── ApiClient.gd           ← REST (idiom mirrored from Paradotz's GraphStore.gd) + WebSocketPeer
+│                                  connection to grant-api's /ws/paratarot/{session_id}
+├── Scenes/
+│   ├── Main.tscn               ← entry scene, just a Control root + script
+│   └── Main.gd                 ← orchestrator: mode detection from /auth/me, controller and
+│                                  client setup/logic both live here
+├── Nodes/
+│   ├── CardNode.gd             ← single card: face up/down _draw(), tap-to-act, no drag yet
+│   └── CardWorld.gd            ← the card table; pan/zoom container technique ported from
+│                                  Paradotz's Editor.gd (not wired to input yet — not needed
+│                                  for one fixed 3-slot layout that fits on screen)
+├── UI/
+│   ├── ControllerPanel.gd      ← rollup-panel pattern ported from Paradotz's GraphPanel.gd;
+│   │                              Session / Deck / Client Access sections
+│   └── ClientOverlay.gd        ← no menus — bottom action bar, only shows currently-granted
+│                                  actions for the tapped card
+├── Cards/
+│   ├── Major Arcana/          ← 22 vault .md files (MA-00 through MA-21) — data, not code
+│   └── Minor Arcana/          ← 56 vault .md files across 4 suits — data, not code
 ├── Data/
-│   ├── cards.json             ← 78 nodes, 286 edges — source of truth for card data
-│   └── layouts.json           ← layout definitions with slot positions and metadata
-├── Meta/
-│   ├── Card-Schema.md         ← vault card frontmatter schema
-│   ├── Graph-Index.md         ← all 78 nodes with Obsidian links and edge counts
-│   └── Reading-Model.md       ← data model design: readings, scenarios, phase space
-├── Assets/Images/             ← card_back_default.png (420×720 placeholder)
+│   ├── cards.json             ← 78 nodes, 286 edges — source of truth the Godot app reads at runtime
+│   └── layouts.json           ← layout definitions (only Three-Card actually used right now)
+├── Meta/                      ← Card-Schema.md, Graph-Index.md, Edge-Types.md, Reading-Model.md
+│                                  (vault documentation, unchanged by the rewrite)
+├── Assets/Images/             ← 78 card PNGs + card_back_default.png (not yet drawn on the table)
 ├── tools/
-│   ├── fetch_rider_waite.py   ← image fetch utility
-│   └── generate_readings.py   ← synthetic reading generator (usage: python tools/generate_readings.py [count] [layout])
-└── server/                    ← Flask backend (scaffolded, not yet deployed)
-    ├── wsgi.py                ← gunicorn entry point
-    ├── app.py                 ← Flask + flask-sock init
-    ├── auth.py                ← bcrypt login, @login_required decorator
-    ├── sessions.py            ← in-memory sessions, 5h TTL, background cleanup
-    ├── routes.py              ← REST API: login, session, card/edge CRUD, reading CRUD
-    ├── readings.py            ← file-backed reading CRUD on Data/readings.json
-    ├── sockets.py             ← WebSocket: /ws/admin/<id> and /ws/guest/<id>?token=
-    ├── requirements.txt
-    ├── hash_password.py       ← run to generate bcrypt hashes for .env
-    └── .env.example           ← ADMIN_PASSWORD_HASH, DEV_PASSWORD_HASH, FLASK_SECRET, WHEREBY_ROOM_URL
+│   └── fetch_rider_waite.py   ← card-art fetch utility (kept; generate_readings.py retired,
+│                                  was tied to the old JSON reading format)
+└── deploy/
+    └── deploy_paratarot.bat   ← Godot headless export + scp to avareads.com's
+                                   /var/www/grant/apps/paratarot/ (mirrors Grant's deploy.bat shape)
 ```
+
+No `server/` — the old standalone Flask backend is gone. All data/realtime
+plumbing goes through `grant-api` and `grant-auth` on avareads.com (see the
+Grant repo's `docz/infrastructure/auth-service.md` and `data-architecture.md`).
 
 ---
 
@@ -99,111 +122,58 @@ ava_tarot/
 
 | Decision | Detail |
 |----------|--------|
-| Godot 4 HTML5 export | PWA, no app store |
-| 1080×1920 viewport, canvas_items stretch | Fills any phone screen correctly |
-| Node2D cards (not Control) | Free spatial placement, not UI flow |
-| Area2D collision input | Cards handle their own drag/tap/flip |
-| Z-index counter in Main.gd | Monotonically increasing; interacted card always on top |
-| `_higher_card_at_mouse()` | Checks if higher card's bounds actually contain the mouse (not just rect overlap) |
-| `_draw()` + `draw_set_transform` | World-space horizontal card label; Control/Camera2D mismatch is why Label nodes don't work here |
-| `in_slot` flag on CardBase | Suppresses `_draw()` label when card is in a layout slot |
-| LayoutBase creates slot labels at runtime | `_ready()` adds CardLabel1/CardLabel2 Label nodes below each Marker2D; `label_y_offset` metadata overrides position (used by crossing slot) |
-| Superposition tracking | `assigned_card` = primary, `superposition_card` = second card on same slot; drag-away promotes super to primary |
-| cards.json at runtime | GraphDB autoload; vault markdown is the human-editable source |
-| Reading capture | `user://readings.json` (Godot app data); metrics vector: major_ratio, suit fracs, inversion_ratio, court_ratio |
-| Reading fingerprint color | HSV: H=dominant suit element, S=major arcana density, V dims with inversion |
-| Flask + flask-sock + gevent | Lightweight WebSocket backend, same pattern as cholt project |
-| Two admin users | `admin` (sister), `dev` (owner) — separate bcrypt hashes in env vars |
-| Whereby for voice/video | Persistent room URL in env var, returned alongside guest_url on session start |
+| No bespoke backend | Talks to Grant's shared `grant-api`/`grant-auth`, same pattern as Paradotz — not a separate Flask service |
+| Public role, real login | Client is a named account with role `public`, not an anonymous guest-token URL |
+| Live, controller-owned ACL | Visibility + allowed actions per card are toggled in real time by the controller, not a fixed rule; server (`grant-api`) filters what each client receives, client never sees unfiltered state |
+| Controller stays authoritative | Client sends `action` requests only; controller applies them and rebroadcasts `state` — no client-side state mutation |
+| No per-move persistence | WebSocket relay is in-process/ephemeral; Postgres is only touched at explicit checkpoints (session save), via the same access-checked path every other graph write uses |
+| One graph, grows in place | Reading data lands in the existing `tarot-deck` graph as Client/Scenario/PLACED nodes+edges, not a new graph per reading — keeps it one thing always open-able in Paradotz |
+| Code-first UI, no hand-authored complex scenes | `ControllerPanel`/`ClientOverlay`/`CardWorld`/`CardNode` are all `class_name` scripts instantiated via `.new()`, not `.tscn` hierarchies — only `Scenes/Main.tscn` is a real scene file, kept to a single root node |
+| Paradotz's web-export conventions carried over | GL Compatibility renderer, `canvas_items` stretch, MenuButton-only (not OptionButton), Latin-1/ASCII-only button text — all hard-won lessons from Paradotz's HTML5 export, not rediscovered here |
 
 ---
 
-## LayoutBase Slot System
+## Realtime Protocol (grant-api's `/ws/paratarot/{session_id}`)
 
-Each Marker2D slot in a layout scene has these metadata keys:
+Controller → server: `{"type": "state", "payload": {"layout", "cards": {slot_id: {deck_card_id, name, face_up, orientation}}}}`, `{"type": "acl", "payload": {slot_id: {"visible": bool, "actions": [...]}}}`, `{"type": "save", "payload": {"client", "scenario", "placements"}}` (checkpoint).
 
-| Key | Type | Purpose |
-|-----|------|---------|
-| `slot_id` | int | ordering (1-based) |
-| `label` | String | display name (shown in static SlotLabel above slot) |
-| `meaning` | String | interpretive meaning (informational only) |
-| `slot_rotation` | float | card rotation when placed (0 or 90) |
-| `force_reversed` | bool | forces is_reversed=true on place |
-| `assigned_card` | CardBase | primary card in slot (set at runtime) |
-| `superposition_card` | CardBase | second card stacked on slot (set at runtime) |
-| `label_y_offset` | float | offsets CardLabel1/2 downward (used by crossing slot to avoid overlap) |
+Server → client: `{"type": "state", "payload": {...filtered...}, "acl": {...}}` — cards not currently `visible` are simply absent from `payload.cards`.
 
-`LayoutBase._ready()` adds `CardLabel1` and `CardLabel2` Label nodes (white, 18pt, z=200) as children of each Marker2D. These update reactively via `card_flipped`, `card_drag_started`, and `card_orientation_changed` signals.
+Client → server: `{"type": "action", "card_id": slot_id, "action": "flip"}` — server validates against the live ACL before forwarding to the controller; controller decides how to apply it (currently: flip toggles and rebroadcasts).
+
+Server → controller: `{"type": "client_joined", "user_id", "username"}` when a client connects — this is how the controller knows who to attach to the Client node at the next checkpoint.
+
+Full endpoint/session-store detail lives in `Grant/server/api-service/main.py`'s "Paratarot realtime sessions" section.
 
 ---
 
-## Reading Data Format
+## Godot / Web-Export Gotchas Carried Over From Paradotz
 
-Saved to `user://readings.json` (Windows: `%APPDATA%\Godot\app_userdata\Ava Tarot\readings.json`):
-
-```json
-{
-  "reading_id": "reading-20260426-123456",
-  "layout_id": "ava-celtic-cross",
-  "timestamp": "2026-04-26T19:00:00",
-  "querent": "",
-  "notes": "",
-  "placements": [
-    { "slot_id": 1, "slot_label": "The Querent", "card_id": "MA-13",
-      "card_name": "Death", "orientation": "placed_upright" }
-  ],
-  "metrics": {
-    "major_ratio": 0.3, "wands_frac": 0.1, "cups_frac": 0.2,
-    "swords_frac": 0.2, "pents_frac": 0.2,
-    "inversion_ratio": 0.3, "court_ratio": 0.2
-  }
-}
-```
-
-Orientation values: `placed_upright`, `placed_reversed`, `crosses_upright`, `crosses_reversed`.
-Only face-up, slotted cards are captured. Duplicate guard checks last saved reading.
+- **MenuButton, never OptionButton** — the expand-arrow icon is a theme resource that fails to load in HTML5 exports.
+- **Button text must be Latin-1/ASCII only** — Unicode dingbats render as placeholder boxes in the embedded web font.
+- **`thread_support=false`** in the export preset, deliberately — no SharedArrayBuffer needed for a card table, which means no COOP/COEP headers required on the nginx side either (simpler than Paradotz's deployment in this one respect).
+- **Self-modifying deploy scripts**: `update.sh`/`setup-site.sh` on the server do `git pull` on themselves mid-execution — bash keeps running the buffered pre-pull version for that invocation. First run after a script change won't apply the change; run it once more.
 
 ---
 
-## Session / Backend Design
+## Deployment
 
-- Admin logs in → POST /api/session/start → gets `guest_url` (tarot link) + `call_url` (Whereby)
-- Guest URL format: `?role=guest&session=<id>&token=<token>`
-- Guest connects to `/ws/guest/<id>?token=<token>` — read-only, receives state broadcasts
-- Admin connects to `/ws/admin/<id>` — sends `{"type":"state","payload":{...}}` to mirror to guest
-- Session expires: admin disconnect, explicit /api/session/end, or 5-hour TTL
-- One active session per admin user at a time
-- Card data editable via REST: GET/PUT/POST /api/cards, GET/POST/DELETE /api/edges
-- Readings: GET/POST `/api/readings`, GET/PUT/DELETE `/api/readings/<reading_id>`
-
----
-
-## Godot Project Settings
-
-| Setting | Value |
-|---------|-------|
-| Renderer | GL Compatibility |
-| Viewport | 1080 × 1920 |
-| Dev window override | 540 × 960 |
-| Stretch mode | canvas_items |
-| Emulate mouse from touch | ON |
-| Autoloads | DeckState, GraphDB |
+`deploy/deploy_paratarot.bat` — headless Godot Web export, `scp` to
+`avareads.com:/var/www/grant/apps/paratarot/`. Reminder printed at the end:
+if this is the first deploy after a Grant-side change (auth-service, nginx,
+grant-api), also run `bash /opt/grant/server/scripts/update.sh` on
+avareads.com and confirm `/etc/grant-site.env`'s `SITE_APPS` includes
+`paratarot`. Per the Hub/Satellite rule, this app's source stays in this
+repo — avareads.com only ever receives the built export, same shape as
+Paradotz, just without centralizing the source in Grant since no second site
+needs it (yet).
 
 ---
 
-## Known GDScript / Godot Gotchas (already fixed, will recur)
+## Next Session Candidates
 
-- **JSON null fields**: `.get("key", "")` returns `null` (not `""`) when key exists with null value. Pattern: `var v = data.get("key"); var s: String = v if v is String else ""`
-- **`arcana` field value**: is `"Major"` in cards.json, not `"Major Arcana"` — check `== "Major"`
-- **`slot_id` type**: Godot stores metadata as-typed; old .tscn files may produce float. Always cast: `int(slot.get_meta("slot_id", 0))`
-- **`remove_meta` not `erase_meta`**: Godot 4 uses `Node.remove_meta()` — `erase_meta` doesn't exist
-- **`Array[String]`** assignment from untyped Array: use `.assign()` not `= arr.duplicate()`
-- **`to_local()` return type**: needs explicit `: Vector2` annotation for type inference
-- **Label (Control) as child of Marker2D (Node2D)**: works — `position` is in parent's local 2D space; z_index must be set explicitly (labels default to 0, cards may be higher)
-- **`_draw()` world-space text**: use `draw_set_transform(anchor_screen, -rotation, Vector2.ONE)` to keep text horizontal regardless of card rotation
-
----
-
-## Deployment Target
-
-DigitalOcean droplet, nginx + gunicorn, same pattern as the `cholt` project in `dev/projects/cholt/`. Godot PWA export goes to a static host. Note: Netlify requires COOP/COEP headers for SharedArrayBuffer — check export settings.
+- Draw actual card art in `CardNode._draw()` instead of the name-text placeholder
+- Wire dragging + real slot-snap (technique already sketched in the plan; `CardWorld`'s `_world` container is ready for it)
+- Celtic Cross / Ava's Celtic Cross layouts
+- `point`/`pick` client actions
+- Reading history browser reading from the graph's Scenario nodes instead of a flat file
