@@ -113,11 +113,15 @@ func _on_end_pressed() -> void:
 	var cards: Dictionary = _state.get("cards", {})
 	if not cards.is_empty():
 		_send_checkpoint()
-	ApiClient.disconnect_ws()
-	_panel.set_status("No active reading")
 	_state = {"layout": "three-card", "cards": {}}
 	_acl = {}
 	_pending_client = {}
+	# Push the cleared state before disconnecting so any connected client's
+	# view resets instead of freezing on the last-seen cards.
+	ApiClient.send_ws({"type": "state", "payload": _state})
+	ApiClient.send_ws({"type": "acl", "payload": _acl})
+	ApiClient.disconnect_ws()
+	_panel.set_status("No active reading")
 	_world.apply_state(_state["cards"])
 
 
@@ -205,6 +209,7 @@ func _setup_client() -> void:
 	_world.card_tapped.connect(_on_client_card_tapped)
 	_overlay.action_chosen.connect(_on_client_action_chosen)
 	ApiClient.state_received.connect(_on_state_received)
+	ApiClient.ws_closed.connect(_on_client_ws_closed)
 
 	_status_label = Label.new()
 	_status_label.text = "Waiting for your reading to begin…"
@@ -223,6 +228,20 @@ func _join_current_session() -> void:
 	ApiClient.connect_ws(session_id)
 	if is_instance_valid(_status_label):
 		_status_label.queue_free()
+
+
+func _on_client_ws_closed() -> void:
+	# Controller ended the reading (or dropped) — clear the board instead of
+	# freezing on the last-seen cards, and go back to waiting for the next one.
+	_last_acl = {}
+	_world.apply_state({})
+	_overlay.hide()
+	if not is_instance_valid(_status_label):
+		_status_label = Label.new()
+		_status_label.set_anchors_preset(Control.PRESET_CENTER)
+		add_child(_status_label)
+	_status_label.text = "Waiting for your reading to begin…"
+	_join_current_session()
 
 
 func _on_state_received(cards: Dictionary, acl: Dictionary) -> void:
