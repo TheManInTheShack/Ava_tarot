@@ -1,17 +1,20 @@
 class_name CardNode
 extends Control
 
-## A single card on the table. No dragging in this first pass — cards live at
-## a fixed slot position; the only interaction is tap-to-act (flip, today),
-## gated by `interactive`, which the world/panel sets from the live ACL.
+## A single card layer on the table. No dragging in this first pass — cards
+## live at a fixed slot position; the only interactions are tap-to-act (flip,
+## today) and right-click for the context menu, both gated by `interactive`,
+## which the world/panel sets from the live ACL.
 ## Ported technique (not code) from Paradotz's Nodes/GraphNode.gd: custom
-## _draw() per instance, tap handled in _gui_input.
+## _draw() per instance, tap/right-click handled in _gui_input.
 
-signal tapped(slot_id: String)
+signal tapped(slot_id: String, layer: String)
+signal context_requested(slot_id: String, layer: String)
 
 const CARD_SIZE := Vector2(140, 240)
 
 var slot_id: String = ""
+var layer: String = "vertical"       # "vertical" (primary) or "horizontal" (crossing/modifier)
 var deck_card_id: String = ""
 var card_name: String = ""
 var face_up: bool = false
@@ -57,7 +60,22 @@ func set_face_up(value: bool) -> void:
 
 func set_orientation(value: String) -> void:
 	orientation = value
-	rotation = PI if orientation == "reversed" else 0.0
+	_update_rotation()
+
+
+func set_layer(value: String) -> void:
+	layer = value
+	_update_rotation()
+
+
+## Total rotation combines two independent facts: which layer this is
+## (vertical=0°, horizontal=90°, structural) and whether it's reversed
+## (+180°, instance-level) — see Meta/Reading-Model.md's structural-vs-
+## instance property split.
+func _update_rotation() -> void:
+	var layer_angle := (PI / 2.0) if layer == "horizontal" else 0.0
+	var reversed_angle := PI if orientation == "reversed" else 0.0
+	rotation = layer_angle + reversed_angle
 
 
 func set_interactive(value: bool) -> void:
@@ -68,9 +86,13 @@ func set_interactive(value: bool) -> void:
 func _gui_input(event: InputEvent) -> void:
 	if not interactive:
 		return
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		tapped.emit(slot_id)
-		accept_event()
+	if event is InputEventMouseButton and event.pressed:
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			tapped.emit(slot_id, layer)
+			accept_event()
+		elif event.button_index == MOUSE_BUTTON_RIGHT:
+			context_requested.emit(slot_id, layer)
+			accept_event()
 	elif event is InputEventScreenTouch and event.pressed:
-		tapped.emit(slot_id)
+		tapped.emit(slot_id, layer)
 		accept_event()

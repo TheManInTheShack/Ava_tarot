@@ -9,7 +9,7 @@ extends VBoxContainer
 signal start_pressed()
 signal end_pressed()
 signal deal_pressed()
-signal acl_changed(slot_id: String, is_visible: bool, actions: Array)
+signal acl_changed(slot_id: String, layer: String, is_visible: bool, actions: Array)
 
 const PALETTE := [
 	Color(0.29, 0.62, 1.00),  # Blue   — Session
@@ -18,6 +18,8 @@ const PALETTE := [
 ]
 
 var _status_label: Label
+var _visible_cbs: Dictionary = {}   # "slot_id:layer" -> CheckBox
+var _flip_cbs: Dictionary = {}      # "slot_id:layer" -> CheckBox
 
 
 func _ready() -> void:
@@ -105,31 +107,51 @@ func _build_deck_section() -> void:
 	_make_rollup("Deck", _rollup_color(1), form)
 
 
+## Slot list is still hardcoded here, same as CardWorld's THREE_CARD_SLOTS —
+## becomes data-driven off the real Layout/Slot graph nodes in Step 2.
+const SLOT_IDS := ["1", "2", "3"]
+const LAYER_LABELS := {"vertical": "Vertical", "horizontal": "Horizontal"}
+
+
 func _build_cards_section() -> void:
 	var form := VBoxContainer.new()
-	for slot_id in ["1", "2", "3"]:
-		var row := HBoxContainer.new()
-		var label := Label.new()
-		label.text = "Slot " + slot_id
-		label.custom_minimum_size = Vector2(60, 0)
-		row.add_child(label)
+	for slot_id in SLOT_IDS:
+		for layer in ["vertical", "horizontal"]:
+			var key := "%s:%s" % [slot_id, layer]
+			var row := HBoxContainer.new()
+			var label := Label.new()
+			label.text = "Slot %s — %s" % [slot_id, LAYER_LABELS[layer]]
+			label.custom_minimum_size = Vector2(140, 0)
+			row.add_child(label)
 
-		var visible_cb := CheckBox.new()
-		visible_cb.text = "Visible"
-		row.add_child(visible_cb)
+			var visible_cb := CheckBox.new()
+			visible_cb.text = "Visible"
+			row.add_child(visible_cb)
+			_visible_cbs[key] = visible_cb
 
-		var flip_cb := CheckBox.new()
-		flip_cb.text = "Can flip"
-		row.add_child(flip_cb)
+			var flip_cb := CheckBox.new()
+			flip_cb.text = "Can flip"
+			row.add_child(flip_cb)
+			_flip_cbs[key] = flip_cb
 
-		var emit_change := func() -> void:
-			var actions: Array = ["flip"] if flip_cb.button_pressed else []
-			acl_changed.emit(slot_id, visible_cb.button_pressed, actions)
-		visible_cb.toggled.connect(func(_v: bool) -> void: emit_change.call())
-		flip_cb.toggled.connect(func(_v: bool) -> void: emit_change.call())
+			var emit_change := func() -> void:
+				var actions: Array = ["flip"] if flip_cb.button_pressed else []
+				acl_changed.emit(slot_id, layer, visible_cb.button_pressed, actions)
+			visible_cb.toggled.connect(func(_v: bool) -> void: emit_change.call())
+			flip_cb.toggled.connect(func(_v: bool) -> void: emit_change.call())
 
-		form.add_child(row)
+			form.add_child(row)
 	_make_rollup("Client Access", _rollup_color(2), form)
+
+
+## Keeps these checkboxes honest when ACL changes from elsewhere (the card's
+## own right-click "Show/Hide" menu item) instead of from this panel.
+func sync_acl(slot_id: String, layer: String, is_visible: bool, actions: Array) -> void:
+	var key := "%s:%s" % [slot_id, layer]
+	if _visible_cbs.has(key):
+		_visible_cbs[key].set_pressed_no_signal(is_visible)
+	if _flip_cbs.has(key):
+		_flip_cbs[key].set_pressed_no_signal(actions.has("flip"))
 
 
 func set_status(text: String) -> void:
