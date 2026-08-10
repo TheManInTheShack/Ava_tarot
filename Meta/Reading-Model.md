@@ -95,6 +95,10 @@ placement constraint: **a slot's Vertical layer must be filled before its
 Horizontal layer can be** — you can't place a crossing card over an empty
 position.
 
+**Slots carry a deal-order sequence** — a structural property set when the
+layout is designed, so "Deal Next" (see Deck section below) has a
+well-defined next position rather than an arbitrary one.
+
 ---
 
 ## Placement edges
@@ -311,12 +315,79 @@ Not a graph concept by itself, but denormalizes into the `Client` node's
 
 ---
 
+## Deck state & dealing
+
+Dealing is **state-independent** — out-of-session play is meant to feel
+freeform: a layout can be built and cards thrown down with nobody in a
+session at all. The difference is purely about persistence, not
+capability: out-of-session dealing produces **no scenario data**, which
+falls straight out of the placement-edge schema above rather than needing
+special-casing — `PLACED`/`MODIFIES` edges always carry
+`session_id`/`scenario_id`/`client_id`, none of which exist outside a
+session, so there's simply nothing to write.
+
+Reshuffle/Unshuffle imply the deck has a **persistent standing order**, not
+the fresh `ids.shuffle()` done inline at deal time today
+(`_on_deal_pressed()` currently shuffles and deals all three fixed slots in
+one shot). Dealing becomes "draw from the top of a standing order," one card
+at a time. That order is ephemeral, live WS-session state — same tier as
+today's `_state` — not a graph concept; nothing about deck order gets
+persisted.
+
+Six actions:
+
+- **Reset** — clear the table back to empty
+- **Reshuffle** — randomize the standing order
+- **Unshuffle** — restore canonical/catalog order (Major Arcana 0–21, then
+  suits Ace–King) — a presentation move, showing the deck in recognizable
+  order before shuffling for effect
+- **Deal to Slot** — targeted placement into a specific slot/layer
+- **Deal Next** — draw the top card into whichever slot is next per the
+  layout's deal-order sequence (see Slot properties, above)
+- **Deal Loose** — draw the top card as an untethered card (feeds into the
+  drag-drop resolution logic under Placement edges, above)
+
+---
+
+## Controller panel structure
+
+Rollup sections, same visual pattern as today's `ControllerPanel`, but
+data-driven off the real Slot list instead of hardcoded, and split across
+three tiers:
+
+**Out-of-session only**
+- **Session** — client picker (closed list of registered `public`-role
+  Clients) + "Start Session"
+
+**In-session only**
+- **Client Access** — one row *per layer* (Vertical + Horizontal
+  separately), generated from the active Layout's real Slot list, replacing
+  today's hardcoded `["1","2","3"]`
+- **Session** (same section, different controls once in-session) —
+  "Record Scenario" (mid-session save) and "End Session" (diff-check against
+  the last save, then close)
+
+**State-independent**
+- **Layout** — select the active Layout, and edit it (instantiate/move/
+  delete/freeze Slots); changing the selection out of session is passive
+  (just becomes the default for the next session), in-session it's a
+  mid-session restart (deck resets, new empty Layout appears, any existing
+  placement gets saved first, same as any other mid-session save)
+  - **Background** nested inside Layout's section rather than a separate
+    top-level rollup, since it's structurally a per-Layout property
+    (`Layout --USES_BACKGROUND-->`)
+- **Traits** — manage the Trait vocabulary and assign to whichever Client is
+  currently in focus (the client picked for the next session, or the active
+  session's client)
+- **Deck** — the six dealing actions above
+
+---
+
 ## Still open / not covered by this revision
 
-- The control-surface (`ControllerPanel`) redesign itself — the nested-entity
-  structure, and how the IN_SESSION/OUT_OF_SESSION/state-independent tiers
-  actually lay out — is the immediate next design pass, deliberately not
-  detailed here.
+- The panel structure above is agreed at the tier/section level; the actual
+  widget-level UI (exact controls, layout within each rollup) isn't designed
+  yet.
 - New edge types named in this document (`HAS_SLOT`, `HAS_LAYER`,
   `USES_BACKGROUND`, `HAS_TRAIT`, `MODIFIES`, `HAS_SCENARIO`) still need to be
   formally added to `Edge-Types.md`'s taxonomy, same as the 2026-04 draft
