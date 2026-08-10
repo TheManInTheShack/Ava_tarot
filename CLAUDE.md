@@ -1,6 +1,10 @@
 # CLAUDE.md — Paratarot (formerly Ava Tarot)
 
-Read this first in any new session. It reflects the current built state.
+Read this first in any new session. It reflects the current built state. For
+the in-progress redesign (Layout/Slot/Session graph model, deck & modifier
+mechanics), see `Meta/Reading-Model.md` and the Next Session Candidates
+roadmap below — neither is built yet, both are the design this file's
+"Current State" section will be rewritten against as each step lands.
 
 ---
 
@@ -172,8 +176,37 @@ needs it (yet).
 
 ## Next Session Candidates
 
+**Build roadmap, agreed 2026-08-10** — full design in `Meta/Reading-Model.md`
+(Layout/Slot/Session/Client/Trait/Background graph model, deck & modifier
+mechanics, controller panel structure). Ordered by actual dependency, not
+importance — the hard spine is 1 → 2 → 3 → 5 → 7; Steps 4 and 6 are
+pluggable wherever convenient once their own prerequisites are met.
+
+1. **Two-layer slot rendering**, still on the hardcoded 3-slot layout — prove
+   Vertical/Horizontal crossed rendering, per-layer ACL, and the right-click
+   menu (Show/Hide/Turn/Invert) before touching graph schema.
+2. **Layout/Slot as real graph nodes** — promote `THREE_CARD_SLOTS` into
+   `Layout → Slot → Vertical/Horizontal` graph nodes; build the Layout
+   section's slot editor (instantiate/move/delete/freeze). Retires the dead
+   `Data/layouts.json` for good.
+3. **Session as a formal entity**, plus `display_name` + the six test
+   personas — Session node/numbering/timestamps, the client picker, the
+   Session panel split, checkpoint rewrite for the Session↔Client↔Scenario
+   triangle with diff-check-before-close.
+4. **Deck controls + freeform out-of-session play** — persistent deck-order
+   state, Reset/Reshuffle/Unshuffle/Deal to Slot/Deal Next/Deal Loose.
+   Out-of-session dealing should produce zero graph writes for free, from
+   the schema itself, not special-cased.
+5. **Card dragging + loose cards + the modifier mechanic** — Deal Loose, the
+   three-way drag resolution (empty→vertical / filled-vertical→horizontal /
+   both-filled→highlight+`MODIFIES`), "Modify Card" as the right-click
+   alternate path.
+6. **Traits & Background** — both small, Tag-style managed lists,
+   essentially independent of everything above.
+7. **Layout switching mid-session** — restart-with-auto-save behavior; needs
+   Step 2 (more than one real layout) and Step 3 (the save mechanic).
+
+**Also still open, unrelated to this sequence:**
 - Draw actual card art in `CardNode._draw()` instead of the name-text placeholder
-- Wire dragging + real slot-snap (technique already sketched in the plan; `CardWorld`'s `_world` container is ready for it)
-- Celtic Cross / Ava's Celtic Cross layouts
 - `point`/`pick` client actions
 - Reading history browser reading from the graph's Scenario nodes instead of a flat file
