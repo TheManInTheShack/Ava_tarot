@@ -87,6 +87,14 @@ Slots themselves are ordinary graph entities: instantiable, movable,
 deletable, and "frozen" into a named Layout by simply being edged to it — no
 separate freeze/save step beyond the normal graph write.
 
+**Layers are controlled independently** — visibility/actions ACL is
+per-layer, not per-slot (today's ACL is slot-granularity only; this is a
+real widening, not just a UI relabel — a slot's Vertical card can be visible
+while its Horizontal modifier stays hidden, or vice versa). The one
+placement constraint: **a slot's Vertical layer must be filled before its
+Horizontal layer can be** — you can't place a crossing card over an empty
+position.
+
 ---
 
 ## Placement edges
@@ -94,7 +102,8 @@ separate freeze/save step beyond the normal graph write.
 Two cases, one edge type (`PLACED`), differentiated by target and a property
 — not a proliferating type per placement kind:
 
-**Slotted** — `Card --PLACED--> Vertical` or `Card --PLACED--> Horizontal`.
+**Slotted** — `Card --PLACED--> Vertical` or `Card --PLACED--> Horizontal`
+(Vertical must already be filled before Horizontal can be).
 Properties: `orientation` ("upright"/"reversed"), `session_id`, `scenario_id`,
 `client_id`.
 
@@ -120,9 +129,23 @@ so the modification is fully traceable from any of the three anchors.
 resolution (`Editor.gd:_resolve_loose_end`): unlike Paradotz's `_loose`
 placeholder (which stands in for a node whose *type* is still unknown),
 Paratarot's loose card is already a fully-known `Card` — only its *placement*
-is undetermined. Resolution is menu-driven rather than Paradotz's
-drag-until-rects-intersect: controller right-clicks the loose card → "Modify
-Card" → picks a target → edge is created.
+is undetermined. Two paths resolve it, not one:
+
+1. **Right-click menu** — controller right-clicks the loose card → "Modify
+   Card" → picks a target → edge created. Works regardless of position.
+2. **Drag-and-drop**, closer to Paradotz's own drag-until-rects-intersect
+   technique, and the primary path in practice — the same drag gesture
+   resolves to one of three outcomes depending on what's already at the drop
+   target:
+   - Dropped over an **empty slot** → fills that slot's Vertical layer
+   - Dropped over a slot with **Vertical filled, Horizontal empty** → fills
+     the Horizontal layer (still subject to the vertical-before-horizontal
+     rule above, trivially satisfied here since Vertical is already filled)
+   - Dropped over a slot where **both layers are filled** → dragging over
+     the visible portion of either of the two occupied cards highlights that
+     card; releasing there creates a `MODIFIES` edge to whichever card was
+     highlighted, instead of a `PLACED` edge — the drag never fails, it just
+     picks a different outcome based on what it's hovering
 
 **Right-click context menu** (per card, ported UI pattern from Paradotz's
 `Editor.gd:_show_node_context_menu` — a hand-built overlay + `PanelContainer`
@@ -172,6 +195,23 @@ A formal, numbered entity — not ephemeral in-memory state like today's
 - The controller UI therefore has a top-level mode, **IN_SESSION** or
   **OUT_OF_SESSION**, gating which controls are available (detail deferred to
   the control-surface design pass).
+
+### Layout selection & session state
+
+Choosing a Layout is state-independent, but what it *does* depends on
+IN_SESSION vs. OUT_OF_SESSION:
+
+- **Out of session** — changing the selection is passive: it becomes "the
+  current selection," nothing else happens. It's simply what a new Session
+  would start with by default.
+- **In session** — changing it is tantamount to starting over: the deck
+  reshuffles back to its ready state and the new, empty Layout appears on
+  screen. This does **not** end the Session — same `session_number`, same
+  Client, `ended_at` stays null.
+- **If cards were already placed** when a mid-session Layout change happens,
+  the current table state gets recorded first, same as any other mid-session
+  save (above) — a Layout switch is just another trigger for that mechanic,
+  not a new one.
 
 ### Session ↔ Scenario — one-to-many, not one-to-one
 
