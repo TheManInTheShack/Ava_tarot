@@ -5,197 +5,334 @@ title: Reading & Scenario Data Model
 
 # Reading & Scenario Data Model
 
-This document defines the conceptual architecture for readings, scenarios, and metrics in the Ava Tarot knowledge graph. It is a design reference — nothing described here is yet implemented beyond the base card graph.
+This document defines the conceptual architecture for readings, layouts, sessions,
+and clients in the Ava Tarot knowledge graph. It is a design reference, agreed
+2026-08-10 — nothing described here is implemented yet beyond the base 78-card
+catalog and a simpler, superseded checkpoint write (`Scenario` node + flat
+`PLACED` edges straight to `Card`, no `Layout`/`Slot`/`Session` nodes). This
+revision replaces the 2026-04 draft of this document, which sketched similar
+territory (Layout/Slot promotion, positional scenarios) but was never wired up
+and left an unresolved gap between its own property-based and edge-based
+scenario designs. That gap is resolved here.
 
 ---
 
-## Graph Layers
+## Guiding principle
 
-The full graph is composed of four distinct layers. Each is optionally loadable on top of the one below. The base card graph is always present; the others are applied as context demands.
-
-| Layer | Contents | Always Loaded |
-|-------|----------|---------------|
-| 0 — Card Graph | 78 card nodes, ~286 edges (sequential, relational, correspondence) | Yes |
-| 1 — Layout Graph | Layout and slot nodes; describes physical reading positions | When a spread is selected |
-| 2 — Reading | A specific spread instance; card-in-slot edges with orientation | When reviewing a past reading |
-| 3 — Scenarios | Named subgraph patterns extracted from or overlaid onto a reading | On demand / admin-defined |
-
-Layers 2 and 3 are subgraphs that reference nodes from layers 0 and 1. They do not modify the base graph.
+There is no separate configuration surface. Layouts, slots, backgrounds,
+traits, sessions, clients, scenarios — all of it is the same evolving graph
+the 78 cards live in. "Editing a layout" is a graph write, not a JSON file
+edit. This is a direct extension of the platform-wide rule that the graph is
+the canonical source (see Grant's own `CLAUDE.md`), applied all the way down
+to what used to look like static config (`Data/layouts.json`, now dead and to
+be retired once this is built).
 
 ---
 
-## Node Types
+## Node types
 
 | Type | Status | Description |
 |------|--------|-------------|
-| `card` | Existing | One node per card (78 total) |
-| `layout` | Existing | One node per spread type |
-| `slot` | Partially defined | Currently metadata on layout nodes; promote to first-class for readings |
-| `reading` | Planned | A timestamped record of one spread instance |
-| `scenario` | Planned | A named, admin-defined subgraph pattern |
-| `metric` | Planned | A computed aggregate property of a reading |
+| `Card` | Live | One node per card (78 total) — the starting material, unchanged |
+| `Client` | Live, renamed | Was "Customer"; a real logged-in `public`-role account. Consulting-business framing, not a game. |
+| `Layout` | Design only | One node per named spread (e.g. "Classic Simple") |
+| `Slot` | Design only | One node per position within a Layout, edged to it |
+| `Vertical` / `Horizontal` | Design only | The two layers of a Slot — see below |
+| `Background` | Design only | A small managed list, same shape as `Trait`/`Tag` |
+| `Trait` | Design only | A small managed list, same shape as `Tag` — personality tags on a Client |
+| `Session` | Design only | A formal, numbered entity — see below |
+| `Scenario` | Live, extended | One per recorded reading; gains a direct Client edge and can recur within one Session |
 
 ---
 
-## Readings
+## Structural vs. instance data — the property-placement rule
 
-A **reading** is a Layer 2 subgraph recording which cards appeared in which slots and how. It is bounded: it cannot exist without a layout, and it references only nodes from layers 0 and 1.
+Two different kinds of fact live in this graph, and they go on different kinds
+of thing:
 
-### Reading Node Properties
+- **Structural** — true about the *design* of a layout, persists across every
+  reading that ever uses it: a Slot's position, a Layer's rotation, a Layer's
+  labeling strategy, a Layout's chosen Background. Lives on the
+  `Layout`/`Slot`/`Vertical`/`Horizontal`/`Background` nodes themselves.
+- **Instance** — true about *one specific placement event*: which card, which
+  orientation, which session/scenario/client it happened in. Lives on the
+  **edge** connecting a `Card` to whatever it was placed on, created fresh at
+  deal time, never on the structural nodes.
+
+This is why inversion status (upright/reversed) is an edge property, not a
+Layer property, even though both "belong" to the same slot conceptually.
+
+---
+
+## Layout → Slot → Layer hierarchy
+
+```
+Layout ("Classic Simple")
+  └─HAS_SLOT→ Slot ("Past")
+                └─HAS_LAYER→ Vertical   (the primary card position, 0°)
+                └─HAS_LAYER→ Horizontal (the crossing/modifier position, 90°)
+```
+
+Node names are composite to stay globally unique across every layout without
+a separate compound key: `classic-simple-past-vertical`,
+`classic-simple-past-horizontal`, etc.
+
+Each Slot uniformly has **exactly two layers**, no more — Vertical (the
+initial card) and Horizontal (its modifier), which physically cross, matching
+the classic crossing-card visual (and the 2026-04 draft's already-invented
+`placed_upright`/`crosses_upright` vocabulary — "crossing" was always the
+horizontal orientation, just never promoted to a real node before now).
+
+Slots themselves are ordinary graph entities: instantiable, movable,
+deletable, and "frozen" into a named Layout by simply being edged to it — no
+separate freeze/save step beyond the normal graph write.
+
+---
+
+## Placement edges
+
+Two cases, one edge type (`PLACED`), differentiated by target and a property
+— not a proliferating type per placement kind:
+
+**Slotted** — `Card --PLACED--> Vertical` or `Card --PLACED--> Horizontal`.
+Properties: `orientation` ("upright"/"reversed"), `session_id`, `scenario_id`,
+`client_id`.
+
+**Loose** — a card dealt onto the table but not occupying any Slot/Layer.
+`Card --PLACED--> Scenario` directly, skipping Layer entirely. Properties:
+`placement: "loose"`, `session_id`, `scenario_id`, `client_id`. Loose-and-
+never-attached is a legitimate, permanent end state — not a thing requiring
+later resolution.
+
+---
+
+## The modifier mechanic (decoupled/attached cards)
+
+Any card, loose or not, can be data-linked to modify any other card already
+on the table — not bounded by slot geometry, drawn beside its target with a
+connecting line rather than occupying slot bounds.
+
+Edge: `Card(loose) --MODIFIES--> Card(target)`, properties `{session_id,
+scenario_id, client_id}` — same identifying items as any scenario-based edge,
+so the modification is fully traceable from any of the three anchors.
+
+**Interaction**, ported technique (not code) from Paradotz's loose-node
+resolution (`Editor.gd:_resolve_loose_end`): unlike Paradotz's `_loose`
+placeholder (which stands in for a node whose *type* is still unknown),
+Paratarot's loose card is already a fully-known `Card` — only its *placement*
+is undetermined. Resolution is menu-driven rather than Paradotz's
+drag-until-rects-intersect: controller right-clicks the loose card → "Modify
+Card" → picks a target → edge is created.
+
+**Right-click context menu** (per card, ported UI pattern from Paradotz's
+`Editor.gd:_show_node_context_menu` — a hand-built overlay + `PanelContainer`
++ flat `Button`s, not a native `PopupMenu`, triggered by
+`GraphNode.gd`-style `MOUSE_BUTTON_RIGHT` → `context_requested`):
+- **Show/Hide** — relocates the existing per-card ACL visibility toggle (today only a checkbox in the Client Access rollup) onto the card itself
+- **Turn** — the existing flip/face-up mechanic, relocated onto the menu
+- **Invert** — toggle upright/reversed; genuinely new interactivity, today orientation is only randomized at deal, never toggled
+- **Modify Card** — loose cards only; starts the attach-to-target flow above
+
+**Known prerequisite:** cards cannot be dragged at all today (`CardNode`'s own
+header comment says so explicitly; it's on `CLAUDE.md`'s deferred list).
+"Deal a loose card, then position it" needs dragging built first.
+
+---
+
+## Session
+
+A formal, numbered entity — not ephemeral in-memory state like today's
+`_paratarot_sessions` dict, which vanishes on process restart or session end.
 
 ```json
 {
-  "reading_id": "reading-2026-04-21-001",
-  "layout_id": "ava-celtic-cross",
-  "timestamp": "2026-04-21T14:30:00",
-  "querent": "optional free-text",
-  "notes": "optional reading notes"
+  "type": "Session",
+  "name": "Session 14",
+  "properties": {
+    "session_number": 14,
+    "instantiated_at": "2026-08-10T14:02:00Z",
+    "client_joined_at": null,
+    "ended_at": null
+  }
 }
 ```
 
-### Reading Edge Types (new, to add to Edge-Types.md)
+- `session_number`, `instantiated_at`, `client_joined_at`, `ended_at` are all
+  **fixed properties** (Paradotz's existing fixed-property mechanism,
+  `GameState.SHAPE_FIXED_PROPERTIES` — needs adapting from shape-keyed to
+  type-keyed, not new invention).
+- Numbering is a single global sequential counter — `1, 2, 3...` — not
+  per-client, since every session is already tied directly to its Client.
+- **The controller declares the client at instantiation** — "this session
+  with this customer starts now" — so `Session --FOR_CLIENT--> Client` is
+  written atomically at creation, no write-then-patch.
+- `client_joined_at` is filled in separately, whenever that client's socket
+  actually connects — may stay empty indefinitely. **Interrupted sessions
+  stay open passively until the controller explicitly ends them.**
+- The controller UI therefore has a top-level mode, **IN_SESSION** or
+  **OUT_OF_SESSION**, gating which controls are available (detail deferred to
+  the control-surface design pass).
 
-| Type | Description |
-|------|-------------|
-| `placed_upright` | Card occupies a slot in its normal (vertical) orientation |
-| `placed_reversed` | Card occupies a slot in reversed orientation |
-| `crosses_upright` | Card occupies a slot in horizontal (crossing) orientation, upright |
-| `crosses_reversed` | Card occupies a slot in horizontal (crossing) orientation, reversed |
+### Session ↔ Scenario — one-to-many, not one-to-one
 
-Every card placement in a reading is one of these four edge types from a `card` node to a `slot` node, carrying the `reading_id` as a property so the edge is scoped to that reading.
+A Session can produce **zero or more** Scenario writes before it closes:
+
+- **Mid-session saves** — "record it and start over in the same session" —
+  write a Scenario, do not touch the Session or its `ended_at`.
+- **End Session** — diff the live table state against the last-saved
+  Scenario (n-1). Only write one more (final) Scenario if something changed
+  since that save — no redundant duplicate write — then stamp `ended_at`.
+
+### The Session ↔ Client ↔ Scenario triangle
+
+```
+Session --FOR_CLIENT--> Client
+Session --HAS_SCENARIO--> Scenario   (one edge per recorded reading)
+Scenario --FOR_CLIENT--> Client       (completes the triangle)
+```
+
+`HAS_SCENARIO` is a proposed verb, not yet cross-checked against
+`Edge-Types.md`'s conventions — flag for confirmation when this is built.
+`FOR_CLIENT` already exists live (today's `Scenario --FOR_CLIENT--> Client`
+checkpoint edge); reused here rather than inventing a second verb for the
+same relationship.
+
+Any of the three nodes can be the query entry point: from a Card's placement
+edges you reach its `session_id`/`scenario_id`/`client_id` directly without
+walking the triangle at all — "approach it from any point."
 
 ---
 
-## Scenarios
+## Background
 
-Scenarios are the most structurally rich concept. There are two distinct flavors.
+Not Paradotz's freeform decoration system — meant to feel like a tabletop
+surface, not an editable canvas.
 
----
-
-### Flavor A — Positional Scenarios (slot-bound)
-
-A positional scenario is tied to a specific slot and describes the cards physically present there. The superposition is the canonical case.
-
-**Superposition structure:**
-- A primary card (node) with its inversion status
-- A secondary card (node) with its inversion status
-- A slot (node) within a specific layout
-
-**Combinatoric space** for Ava's Celtic Cross (10 slots):
-```
-78 (primary) × 2 (primary inversion) × 77 (secondary) × 2 (secondary inversion) × 10 (slot)
-= 240,240 possible superposition instances
-```
-The space is not pre-fillable — instances are recorded as they occur in actual readings.
-
-**Positional scenario node:**
-```json
-{
-  "scenario_id": "scenario-superposition-...",
-  "type": "superposition",
-  "slot_id": "slot-2",
-  "layout_id": "ava-celtic-cross",
-  "primary_card": "MA-18",
-  "primary_reversed": false,
-  "secondary_card": "MA-12",
-  "secondary_reversed": true,
-  "admin_notes": "Moon crosses the Hanged Man — suspension of fear",
-  "reading_ids": ["reading-2026-04-21-001"]
-}
-```
-
-Scenarios are linked to the readings in which they were observed, building a corpus over time.
+- **Node type**, same shape as `Trait`/`Tag`: `name`, `fill_color` (v1 — a
+  muted/desaturated swatch picker, not Paradotz's full 40-color strain
+  palette), later `image` (a `media_image` property, same mechanism Card
+  portraits already use) plus a tile/stretch mode (genuinely new — Paradotz's
+  Gallery fit-modes today are Fit Frame / Fit Picture / Adjust Frame only, no
+  tiling exists yet).
+- **Scoped per-Layout**, not global — "any layout is just a set of positions
+  of other elements," so the background is recorded alongside a Layout's
+  slots and positions: `Layout --USES_BACKGROUND--> Background`.
+- Managed from the state-independent tier of controller UI (see Traits,
+  below) — picking a background doesn't depend on being in or out of a
+  session.
 
 ---
 
-### Flavor B — Aggregate Scenarios (pattern-wide)
+## Traits
 
-Aggregate scenarios are not tied to a slot. They describe a property of the entire spread — a pattern that emerges when you look at all the cards together.
+Personality tags on a Client — emotional states, personality tropes, later
+possibly structured properties like Myers-Briggs type. **Exactly Paradotz's
+Tag/HAS_TAG mechanism**, not a new system:
 
-**The three core aggregate dimensions:**
+- `Trait` node type, locked against rename/delete through the regular Node
+  Types UI the same way `type_name == "Tag"` is special-cased today in
+  `GraphPanel._start_type_edit()`.
+- `Client --HAS_TRAIT--> Trait` edges.
+- A "Trait manager" in the controller UI is a shortcut into this same
+  operation — not a separate rules engine.
+- Available from the **state-independent** tier of controller UI (same tier
+  as Background) — traits get reviewed/added regardless of session state.
+- Additional Client properties (MBTI type, etc.) are ordinary optional
+  properties on the `Client` type schema, same weight as `Card`'s
+  `element`/`planet`/`zodiac` — not fixed/undeletable, since they're
+  discretionary data Ava fills in as she learns it, not structurally
+  load-bearing like Session's timestamps.
+
+---
+
+## Client identity: username vs. display name
+
+Not a graph concept by itself, but denormalizes into the `Client` node's
+`name` property, so worth recording here.
+
+- `users.username` stays exactly as constrained today (`^[a-z0-9_]+$`,
+  unique, the login handle) — unchanged.
+- New `users.display_name` column (nullable free text) — shown wherever a
+  human should see "who this is": dashboard "Signed in as", admin Users
+  list, and the `Client` graph node's `name` (today literally
+  `client.get("username", "")` at checkpoint time — becomes `display_name`
+  with fallback to `username` so nothing ever renders blank).
+- Standard handle-vs-display-name split (Slack/Discord/GitHub precedent),
+  not something novel to invent.
+- Six test personas planned (Beatles-derived): Eleanor Rigby, Billy Shears,
+  Pamela Polythene, Martha Mydear, Rocky Raccoon, Michelle Mybelle — ordinary
+  `public`-role Client accounts through the existing invite flow, once
+  `display_name` exists. Real client registration (an authored opening/index
+  page) is still unbuilt; only the test-client login exists today.
+- Open question, not yet decided: does the client self-edit their own
+  `display_name` later (parallel to existing self-serve password/recovery-
+  email), or admin-set-at-invite only? Either covers the immediate persona
+  need.
+
+---
+
+## Still open / not covered by this revision
+
+- The control-surface (`ControllerPanel`) redesign itself — the nested-entity
+  structure, and how the IN_SESSION/OUT_OF_SESSION/state-independent tiers
+  actually lay out — is the immediate next design pass, deliberately not
+  detailed here.
+- New edge types named in this document (`HAS_SLOT`, `HAS_LAYER`,
+  `USES_BACKGROUND`, `HAS_TRAIT`, `MODIFIES`, `HAS_SCENARIO`) still need to be
+  formally added to `Edge-Types.md`'s taxonomy, same as the 2026-04 draft
+  promised for its own new types and never did (`PLACED`/`FOR_CLIENT` are
+  *live* today and still undocumented there — a pre-existing gap, not
+  introduced by this revision).
+- Card dragging is a hard prerequisite for the loose-card/modifier UI.
+- Backend implication carried over from the 2026-04 draft, still true:
+  `grant-api`'s checkpoint writer (`_apply_paratarot_checkpoint`) needs real
+  rework to write Layout/Slot/Layer/Session nodes and the new edge shapes —
+  not just a client-side data model change.
+
+---
+
+## Aggregate scenarios & phase space (untouched by this revision, still future work)
+
+Everything below is unchanged from the 2026-04 draft — no part of this
+session's design conversation touched it. Kept for continuity; still
+speculative, still Phase 3+.
+
+### Aggregate scenarios (pattern-wide, not slot-bound)
+
+Not tied to a slot — describe a property of the entire spread:
 
 | Dimension | Description | Representation |
-|-----------|-------------|----------------|
+|-----------|-------------|-----------------|
 | **Major Arcana density** | Ratio of major arcana cards to total | `n_major / n_total` → scalar (0.0–1.0) |
 | **Suit distribution** | Relative presence of each suit | `[Wands, Cups, Swords, Pentacles]` → 4-vector |
 | **Value distribution** | Relative presence of each pip value | `[Ace, 2–10, Page, Knight, Queen, King]` → 14-vector (or 4-group: low/mid/high/court) |
 
-Additional optional dimensions:
-- **Inversion ratio**: reversed cards / total → `scalar`
-- **Court density**: face cards / total → `scalar`
-- **Suit entropy**: spread vs concentration of suits → `scalar`
+Additional optional dimensions: inversion ratio, court density, suit entropy
+— each a computed metric, derived automatically at save time, not admin-defined.
 
-Each of these is a computable metric, not something the admin needs to define. They are derived automatically when a reading is saved.
+### Phase space & reading fingerprints
 
----
+A reading maps to a point in a multi-dimensional feature space; readings that
+share a "feel" cluster near each other.
 
-## Phase Space & Reading Fingerprints
-
-This is the key insight: a reading can be mapped to a point in a multi-dimensional feature space. Readings that share a "feel" will cluster near each other. Over time this enables pattern recognition — e.g., "readings with high major arcana density and suit concentration in Cups tend to be emotionally charged."
-
-**Compact feature vector (one reading):**
+**Compact feature vector:**
 ```
 [major_ratio, wands_frac, cups_frac, swords_frac, pents_frac, inversion_ratio, court_ratio, value_entropy]
 ```
 
-**The color metaphor** maps this to a 3-component visual fingerprint:
-- **Hue (H)**: elemental balance — angle through the four suits projected onto a circle (Fire=0°, Water=90°, Air=180°, Earth=270°). A Wands-heavy reading is warm/red; Cups-heavy is blue-green.
-- **Saturation (S)**: major arcana density — the more majors, the more vivid the reading.
-- **Value (V)**: overall intensity — driven by inversion ratio and value entropy (lots of high-pip cards = darker; lots of Aces and courts = brighter).
+**Color metaphor:** Hue = elemental balance (Fire=0°, Water=90°, Air=180°,
+Earth=270°, angle through the four suits); Saturation = major arcana density;
+Value = intensity (inversion ratio + value entropy). Gives each reading a
+single HSV fingerprint — a legitimate dimensionality reduction, not just a
+metaphor, but uncalibrated against real data yet.
 
-This gives each reading a single HSV color that serves as a fast, human-readable fingerprint. Two readings with similar colors had similar structural character, regardless of the specific cards.
+### Scenario instantiation workflow (still applies, now sits alongside Session)
 
-This is not a metaphor — it is a legitimate dimensionality reduction from an 8+ dimensional space to 3 perceptual dimensions. The mapping needs calibration with actual data before it becomes meaningful.
-
----
-
-## Scenario Instantiation Workflow
-
-Scenarios should not be created by default. The workflow is:
-
-1. A reading is completed and saved (with card-in-slot edges and computed metrics).
-2. The admin reviews the reading and optionally flags subgraph patterns as named scenarios.
-3. A scenario instance is created, linked to the reading, and tagged with admin notes.
-4. Over multiple readings, the same scenario recurs; its instance list grows.
-5. The admin can query: "every time The Moon crossed The Hanged Man, what was the outcome?"
-
-This means scenarios are **discovered, not prescribed** — the system doesn't know in advance which patterns are meaningful. The admin decides what to name and track.
-
----
-
-## Implementation Phases
-
-### Phase 1 — Readings (next)
-- Promote slots to first-class nodes (or define them in a `slots.json`)
-- Define `reading` schema and backend endpoints (`POST /api/readings`, `GET /api/readings/:id`)
-- Record card placements as typed edges on the reading node
-- Compute and store the feature vector at save time
-
-### Phase 2 — Positional Scenarios
-- Define scenario schema
-- Admin UI: select a slot in a reading → "mark this as a scenario"
-- Store scenario instances; link to readings
-- Query interface: "show all readings where X crosses Y in slot Z"
-
-### Phase 3 — Aggregate Scenarios & Phase Space
-- Implement HSV fingerprint computation
-- Display color chip alongside each saved reading
-- Similarity search: "find readings with similar character to this one"
-- Over time: clustering, pattern annotations
-
----
-
-## Relationship to Existing Edge Types
-
-New edge types needed (to be added to [[Edge-Types]]):
-
-| Type | Layer | Description |
-|------|-------|-------------|
-| `placed_upright` | Reading | Card in slot, vertical orientation |
-| `placed_reversed` | Reading | Card in slot, reversed |
-| `crosses_upright` | Reading | Card in slot, horizontal/crossing, upright |
-| `crosses_reversed` | Reading | Card in slot, horizontal/crossing, reversed |
-| `observed_in` | Scenario | Scenario instance linked to a reading |
-| `scenario_primary` | Scenario | Primary card in a positional scenario |
-| `scenario_secondary` | Scenario | Secondary (crossing) card in a positional scenario |
-| `scenario_slot` | Scenario | Slot that a positional scenario occupies |
+1. A reading is completed and saved (Scenario write, as above).
+2. The admin reviews and optionally flags subgraph patterns as named
+   aggregate scenarios.
+3. A scenario instance is created, linked to the reading, tagged with notes.
+4. Recurs across readings; instance list grows.
+5. Admin can query: "every time The Moon crossed The Hanged Man, what was the
+   outcome?" — now directly answerable via `MODIFIES`/`PLACED` edge
+   properties rather than requiring a bespoke scenario record for every case.
