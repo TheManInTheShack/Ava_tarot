@@ -28,6 +28,10 @@ window/size/viewport_height=1920
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
+[gui]
+
+theme/default_font_size=28
+
 [input]
 
 emulate_touch_from_mouse=true

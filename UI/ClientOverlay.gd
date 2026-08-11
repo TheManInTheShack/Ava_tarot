@@ -14,7 +14,7 @@ var _current_layer: String = "vertical"
 
 func _ready() -> void:
 	set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	custom_minimum_size = Vector2(0, 72)
+	custom_minimum_size = Vector2(0, 110)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	var panel := PanelContainer.new()
@@ -45,13 +45,13 @@ func show_actions(slot_id: String, layer: String, actions: Array) -> void:
 	for action in actions:
 		var btn := Button.new()
 		btn.text = _label_for(String(action))
-		btn.custom_minimum_size = Vector2(120, 48)
+		btn.custom_minimum_size = Vector2(170, 70)
 		btn.pressed.connect(_on_action_pressed.bind(action))
 		_bar.add_child(btn)
 
 	var dismiss := Button.new()
 	dismiss.text = "Dismiss"
-	dismiss.custom_minimum_size = Vector2(100, 48)
+	dismiss.custom_minimum_size = Vector2(140, 70)
 	dismiss.pressed.connect(func() -> void: hide())
 	_bar.add_child(dismiss)
 

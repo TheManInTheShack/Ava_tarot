@@ -23,7 +23,7 @@ var _flip_cbs: Dictionary = {}      # "slot_id:layer" -> CheckBox
 
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(280, 0)
+	custom_minimum_size = Vector2(440, 0)
 	add_theme_constant_override("separation", 8)
 
 	_build_session_section()
@@ -121,7 +121,7 @@ func _build_cards_section() -> void:
 			var row := HBoxContainer.new()
 			var label := Label.new()
 			label.text = "Slot %s — %s" % [slot_id, LAYER_LABELS[layer]]
-			label.custom_minimum_size = Vector2(140, 0)
+			label.custom_minimum_size = Vector2(220, 0)
 			row.add_child(label)
 
 			var visible_cb := CheckBox.new()
