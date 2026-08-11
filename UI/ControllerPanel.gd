@@ -18,6 +18,7 @@ const PALETTE := [
 ]
 
 var _status_label: Label
+var _version_label: Label
 var _visible_cbs: Dictionary = {}   # "slot_id:layer" -> CheckBox
 var _flip_cbs: Dictionary = {}      # "slot_id:layer" -> CheckBox
 
@@ -26,9 +27,19 @@ func _ready() -> void:
 	custom_minimum_size = Vector2(440, 0)
 	add_theme_constant_override("separation", 8)
 
+	_version_label = Label.new()
+	_version_label.text = "Paratarot"
+	_version_label.add_theme_font_size_override("font_size", 16)
+	_version_label.add_theme_color_override("font_color", Color(0.45, 0.45, 0.45))
+	add_child(_version_label)
+
 	_build_session_section()
 	_build_deck_section()
 	_build_cards_section()
+
+
+func set_version(v: String) -> void:
+	_version_label.text = "Paratarot v" + v
 
 
 func _rollup_color(idx: int) -> Color:

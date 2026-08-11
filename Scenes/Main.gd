@@ -10,6 +10,12 @@ extends Control
 const CONTROLLER_ROLES := ["admin", "dev", "user"]
 const DECK_PATH := "res://Data/cards.json"
 
+## Bump on every commit that touches this repo's source — same convention as
+## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
+## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
+## same fix as /paradotz/, but this is the actual proof).
+const VERSION := "0.1.0"
+
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
 var _deck: Dictionary = {}  # card_id -> card info from cards.json
@@ -81,6 +87,7 @@ func _setup_controller() -> void:
 
 	_panel = ControllerPanel.new()
 	layout.add_child(_panel)
+	_panel.set_version(VERSION)
 
 	_world = CardWorld.new()
 	_world.size_flags_horizontal = Control.SIZE_EXPAND_FILL

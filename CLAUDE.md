@@ -160,6 +160,20 @@ Full endpoint/session-store detail lives in `Grant/server/api-service/main.py`'s
 
 ---
 
+## Versioning
+
+`const VERSION` in `Scenes/Main.gd`, shown in the controller panel (top of
+`ControllerPanel`, via `set_version()`). Added 2026-08-11, same convention as
+Paradotz's `MainMenu.gd` — bump on every commit that touches this repo's
+source; it's the only way to confirm a deploy actually took effect in the
+browser. Also added 2026-08-11: `/paratarot/`'s nginx location was missing
+the `Cache-Control: no-cache` header `/paradotz/` already has for the exact
+same reason (Godot reuses `index.js`/`.pck`/`.wasm` filenames on every
+build, so browsers silently serve a stale cached copy after a deploy) — this
+had been live and un-fixed since Paratarot shipped.
+
+---
+
 ## Deployment
 
 `deploy/deploy_paratarot.bat` — headless Godot Web export, `scp` to

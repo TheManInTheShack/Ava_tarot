@@ -1,23 +1,26 @@
 @echo off
 setlocal
 
-:: Deploys Paratarot to avareads.com. Mirrors Grant/scripts/deploy.bat's
-:: shape, but this is a bespoke satellite-only app (own repo, per the
-:: Hub/Satellite rule in Grant/docz/infrastructure/new-site-guide.md) — it
-:: does not touch grantdickerson.net at all.
-::
-:: This script only handles the Godot export + upload. Shared platform
-:: changes (auth-service role, nginx locations, grant-api WebSocket) live in
-:: the Grant repo and reach avareads.com via its own update.sh — run that
-:: separately (or via this script's last step) after pushing those changes.
+rem Deploys Paratarot to avareads.com. Mirrors Grant/scripts/deploy.bat's
+rem shape, but this is a bespoke satellite-only app (own repo, per the
+rem Hub/Satellite rule in Grant/docz/infrastructure/new-site-guide.md) - it
+rem does not touch grantdickerson.net at all.
+rem
+rem This script only handles the Godot export + upload. Shared platform
+rem changes (auth-service role, nginx locations, grant-api WebSocket) live in
+rem the Grant repo and reach avareads.com via its own update.sh - run that
+rem separately (or via this script's last step) after pushing those changes.
+rem
+rem Remember to bump const VERSION in Scenes/Main.gd before running this -
+rem it's the only way to confirm this deploy actually took effect.
 
-:: ── Edit these paths ──────────────────────────────────────────────
+rem --- Edit these paths ------------------------------------------------
 set GODOT="C:\Users\thman\Desktop\Godot_v4.6.2-stable_win64.exe\Godot_v4.6.2-stable_win64.exe"
 set PROJECT="C:\Users\thman\dev\projects\ava_tarot"
 set OUT_DIR="C:\Users\thman\dev\projects\ava_tarot\export"
 set SERVER=root@avareads.com
 set PARATAROT_REMOTE=/var/www/grant/apps/paratarot
-:: ──────────────────────────────────────────────────────────────────
+rem -----------------------------------------------------------------
 
 echo [git] Pulling latest...
 git -C "C:\Users\thman\dev\projects\ava_tarot" pull origin main
