@@ -84,6 +84,26 @@ func get_current_session() -> String:
 	return ""
 
 
+## Generic graph read/write — the same GET/PUT /graphs/{name} endpoints
+## Paradotz itself uses to edit a graph. Layout/Slot editing is a graph
+## read-mutate-write, not a bespoke Paratarot endpoint — see
+## Meta/Reading-Model.md's guiding principle.
+func get_graph(name: String) -> Dictionary:
+	var r: Array = await _req(HTTPClient.METHOD_GET, _base_url, "/graphs/" + name.uri_encode())
+	if r[1] != 200:
+		return {}
+	var parsed: Variant = _parse_body(r)
+	return parsed if parsed is Dictionary else {}
+
+
+func save_graph(name: String, data: Dictionary) -> Dictionary:
+	var r: Array = await _req(HTTPClient.METHOD_PUT, _base_url, "/graphs/" + name.uri_encode(), JSON.stringify(data))
+	if r[1] != 200:
+		return {}
+	var parsed: Variant = _parse_body(r)
+	return parsed if parsed is Dictionary else {}
+
+
 # ── WebSocket ────────────────────────────────────────────────────────────────
 
 func connect_ws(session_id: String) -> void:

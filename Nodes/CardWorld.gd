@@ -18,18 +18,9 @@ signal card_context_requested(slot_id: String, layer: String)
 
 const LAYERS := ["vertical", "horizontal"]
 
-const THREE_CARD_SLOTS := {
-	"1": Vector2(120, 380),
-	"2": Vector2(480, 380),
-	"3": Vector2(840, 380),
-}
-const SLOT_LABELS := {
-	"1": "Past",
-	"2": "Present",
-	"3": "Future",
-}
-
-var _cards: Dictionary = {}   # "slot_id:layer" -> CardNode
+var _cards: Dictionary = {}          # "slot_id:layer" -> CardNode
+var _slot_geometry: Dictionary = {}  # slot_id -> {"name", "x", "y"} — set via set_slots()
+var _slot_labels: Dictionary = {}    # slot_id -> Label
 var _world: Control
 
 
@@ -44,12 +35,33 @@ func _ready() -> void:
 	_world.mouse_filter = Control.MOUSE_FILTER_PASS
 	add_child(_world)
 
-	for slot_id in THREE_CARD_SLOTS:
-		var label := Label.new()
-		label.text = SLOT_LABELS.get(slot_id, "")
-		label.position = THREE_CARD_SLOTS[slot_id] + Vector2(0, -26)
-		label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
-		_world.add_child(label)
+
+## slots: {slot_id: {"name": String, "x": float, "y": float}} — loaded from
+## the active Layout's graph nodes (Main._apply_active_layout), replacing
+## what used to be the hardcoded THREE_CARD_SLOTS/SLOT_LABELS consts.
+func set_slots(slots: Dictionary) -> void:
+	_slot_geometry = slots
+	for slot_id in _slot_labels.keys().duplicate():
+		if not slots.has(slot_id):
+			_slot_labels[slot_id].queue_free()
+			_slot_labels.erase(slot_id)
+	for slot_id in slots.keys():
+		var info: Dictionary = slots[slot_id]
+		var pos := Vector2(info.get("x", 0.0), info.get("y", 0.0))
+		var label: Label = _slot_labels.get(slot_id)
+		if label == null:
+			label = Label.new()
+			label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+			_world.add_child(label)
+			_slot_labels[slot_id] = label
+		label.text = info.get("name", "")
+		label.position = pos + Vector2(0, -26)
+	# Re-apply any already-placed cards so they follow updated positions.
+	for key in _cards.keys():
+		var node: CardNode = _cards[key]
+		if _slot_geometry.has(node.slot_id):
+			var g: Dictionary = _slot_geometry[node.slot_id]
+			node.position = Vector2(g.get("x", 0.0), g.get("y", 0.0))
 
 
 ## cards: {slot_id: {"vertical": {deck_card_id, name, face_up, orientation}|null,
@@ -80,7 +92,8 @@ func apply_state(cards: Dictionary, acl: Dictionary = {}) -> void:
 				node = CardNode.new()
 				node.slot_id = slot_id
 				node.layer = layer
-				node.position = THREE_CARD_SLOTS.get(slot_id, Vector2.ZERO)
+				var g: Dictionary = _slot_geometry.get(slot_id, {})
+				node.position = Vector2(g.get("x", 0.0), g.get("y", 0.0))
 				node.tapped.connect(_on_card_tapped)
 				node.context_requested.connect(_on_card_context_requested)
 				_world.add_child(node)

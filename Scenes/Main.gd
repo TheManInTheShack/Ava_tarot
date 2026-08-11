@@ -9,12 +9,13 @@ extends Control
 
 const CONTROLLER_ROLES := ["admin", "dev", "user"]
 const DECK_PATH := "res://Data/cards.json"
+const GRAPH_NAME := "tarot-deck"
 
 ## Bump on every commit that touches this repo's source — same convention as
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.1.1"
+const VERSION := "0.2.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -25,11 +26,19 @@ var _panel: ControllerPanel
 var _overlay: ClientOverlay
 var _status_label: Label
 
-var _state: Dictionary = {"layout": "three-card", "cards": {}}
+var _state: Dictionary = {"cards": {}}
 var _acl: Dictionary = {}
 var _pending_client: Dictionary = {}   # last client_joined info, for the checkpoint
 var _last_acl: Dictionary = {}         # client mode only: most recent ACL received
 var _context_menu: Control = null      # controller mode only: the currently-open card context menu
+
+# Controller mode only: the graph-backed Layout/Slot model — see
+# Meta/Reading-Model.md's Layout -> Slot -> Vertical/Horizontal hierarchy.
+var _graph: Dictionary = {}
+var _layouts: Dictionary = {}          # layout_id -> {"name"}
+var _slots: Dictionary = {}            # slot_id -> {"name","x","y","layout_id","vertical_id","horizontal_id"}
+var _active_layout_id: String = ""
+var _next_id_counter: int = 1          # shared node/edge id counter, seeded from the loaded graph
 
 
 func _ready() -> void:
@@ -98,11 +107,212 @@ func _setup_controller() -> void:
 	_panel.end_pressed.connect(_on_end_pressed)
 	_panel.deal_pressed.connect(_on_deal_pressed)
 	_panel.acl_changed.connect(_on_acl_changed)
+	_panel.layout_selected.connect(_on_layout_selected)
+	_panel.layout_created.connect(_on_layout_created)
+	_panel.slot_added.connect(_on_slot_added)
+	_panel.slot_updated.connect(_on_slot_updated)
+	_panel.slot_deleted.connect(_on_slot_deleted)
 	_world.card_tapped.connect(_on_controller_card_tapped)
 	_world.card_context_requested.connect(_on_card_context_requested)
 
 	ApiClient.action_received.connect(_on_client_action_received)
 	ApiClient.client_joined.connect(_on_client_joined)
+
+	await _load_layouts()
+
+
+# ── Layout / Slot (graph-backed) ────────────────────────────────────────────
+
+func _load_layouts() -> void:
+	_graph = await ApiClient.get_graph(GRAPH_NAME)
+	if _graph.is_empty():
+		_graph = {"name": GRAPH_NAME}
+	_seed_id_counter()
+	_parse_layouts()
+	if _layouts.is_empty():
+		_bootstrap_default_layout()
+		await _save_graph()
+		_parse_layouts()
+	if not _layouts.has(_active_layout_id):
+		_active_layout_id = _layouts.keys()[0] if not _layouts.is_empty() else ""
+	_apply_active_layout()
+
+
+func _seed_id_counter() -> void:
+	var max_id := 0
+	for n in _graph.get("nodes", []):
+		var nid: String = str(n.get("id", "0"))
+		if nid.is_valid_int() and int(nid) > max_id:
+			max_id = int(nid)
+	for e in _graph.get("edges", []):
+		var eid: String = str(e.get("id", "0"))
+		if eid.is_valid_int() and int(eid) > max_id:
+			max_id = int(eid)
+	_next_id_counter = max_id + 1
+
+
+func _next_id() -> String:
+	var id := str(_next_id_counter)
+	_next_id_counter += 1
+	return id
+
+
+## Rebuilds _layouts/_slots from _graph's nodes/edges. Structural data only
+## (name, x, y) — inversion/session/scenario are instance-level, live on
+## placement edges written at deal time, not here. See Reading-Model.md's
+## structural-vs-instance property split.
+func _parse_layouts() -> void:
+	_layouts.clear()
+	_slots.clear()
+	var nodes: Array = _graph.get("nodes", [])
+	var edges: Array = _graph.get("edges", [])
+	var node_by_id: Dictionary = {}
+	for n in nodes:
+		node_by_id[str(n.get("id", ""))] = n
+		if n.get("type", "") == "Layout":
+			_layouts[str(n["id"])] = {"name": n.get("name", "")}
+
+	var slot_layout: Dictionary = {}   # slot_id -> layout_id
+	for e in edges:
+		if e.get("type", "") == "HAS_SLOT":
+			slot_layout[str(e.get("to", ""))] = str(e.get("from", ""))
+
+	var layer_ids: Dictionary = {}     # slot_id -> {"vertical": id, "horizontal": id}
+	for e in edges:
+		if e.get("type", "") == "HAS_LAYER":
+			var slot_id: String = str(e.get("from", ""))
+			var layer_node = node_by_id.get(str(e.get("to", "")))
+			if layer_node == null:
+				continue
+			var layer_kind: String = "vertical" if layer_node.get("type", "") == "Vertical" else "horizontal"
+			var d: Dictionary = layer_ids.get(slot_id, {})
+			d[layer_kind] = str(layer_node["id"])
+			layer_ids[slot_id] = d
+
+	for slot_id in slot_layout.keys():
+		var node = node_by_id.get(slot_id)
+		if node == null or node.get("type", "") != "Slot":
+			continue
+		var props: Dictionary = node.get("properties", {})
+		var layers: Dictionary = layer_ids.get(slot_id, {})
+		_slots[slot_id] = {
+			"name": node.get("name", slot_id),
+			"x": float(props.get("x", 0.0)),
+			"y": float(props.get("y", 0.0)),
+			"layout_id": slot_layout[slot_id],
+			"vertical_id": layers.get("vertical", ""),
+			"horizontal_id": layers.get("horizontal", ""),
+		}
+
+
+func _slots_for_layout(layout_id: String) -> Dictionary:
+	var result := {}
+	for slot_id in _slots.keys():
+		if _slots[slot_id].get("layout_id", "") == layout_id:
+			result[slot_id] = _slots[slot_id]
+	return result
+
+
+func _apply_active_layout() -> void:
+	_panel.set_layouts(_layouts, _active_layout_id)
+	var active_slots := _slots_for_layout(_active_layout_id)
+	_panel.set_slots(active_slots)
+	_world.set_slots(active_slots)
+
+
+func _save_graph() -> void:
+	var result: Dictionary = await ApiClient.save_graph(GRAPH_NAME, _graph)
+	if not result.is_empty():
+		_graph = result
+
+
+func _bootstrap_default_layout() -> void:
+	var layout_id := _create_layout_node("Classic Simple")
+	_create_slot_with_layers(layout_id, "Past", 120.0, 380.0)
+	_create_slot_with_layers(layout_id, "Present", 480.0, 380.0)
+	_create_slot_with_layers(layout_id, "Future", 840.0, 380.0)
+
+
+func _create_layout_node(name: String) -> String:
+	var id := _next_id()
+	var nodes: Array = _graph.get("nodes", [])
+	nodes.append({"id": id, "type": "Layout", "name": name, "properties": {}})
+	_graph["nodes"] = nodes
+	return id
+
+
+func _create_slot_with_layers(layout_id: String, name: String, x: float, y: float) -> String:
+	var nodes: Array = _graph.get("nodes", [])
+	var edges: Array = _graph.get("edges", [])
+
+	var slot_id := _next_id()
+	nodes.append({"id": slot_id, "type": "Slot", "name": name, "properties": {"x": x, "y": y}})
+	edges.append({"id": _next_id(), "from": layout_id, "to": slot_id, "type": "HAS_SLOT", "properties": {}})
+
+	for layer_kind in ["Vertical", "Horizontal"]:
+		var layer_id := _next_id()
+		var layer_name := "%s-%s-%s" % [layout_id, name.to_lower().replace(" ", "-"), layer_kind.to_lower()]
+		nodes.append({"id": layer_id, "type": layer_kind, "name": layer_name, "properties": {}})
+		edges.append({"id": _next_id(), "from": slot_id, "to": layer_id, "type": "HAS_LAYER", "properties": {}})
+
+	_graph["nodes"] = nodes
+	_graph["edges"] = edges
+	return slot_id
+
+
+func _on_layout_selected(layout_id: String) -> void:
+	_active_layout_id = layout_id
+	_apply_active_layout()
+
+
+func _on_layout_created(name: String) -> void:
+	var new_id := _create_layout_node(name)
+	await _save_graph()
+	_parse_layouts()
+	_active_layout_id = new_id
+	_apply_active_layout()
+
+
+func _on_slot_added(name: String, x: float, y: float) -> void:
+	if _active_layout_id == "":
+		return
+	_create_slot_with_layers(_active_layout_id, name, x, y)
+	await _save_graph()
+	_parse_layouts()
+	_apply_active_layout()
+
+
+func _on_slot_updated(slot_id: String, x: float, y: float) -> void:
+	var nodes: Array = _graph.get("nodes", [])
+	for n in nodes:
+		if str(n.get("id", "")) == slot_id:
+			var props: Dictionary = n.get("properties", {})
+			props["x"] = x
+			props["y"] = y
+			n["properties"] = props
+			break
+	await _save_graph()
+	_parse_layouts()
+	_apply_active_layout()
+
+
+func _on_slot_deleted(slot_id: String) -> void:
+	if not _slots.has(slot_id):
+		return
+	var info: Dictionary = _slots[slot_id]
+	var remove_ids: Array = [slot_id, info.get("vertical_id", ""), info.get("horizontal_id", "")]
+
+	var nodes: Array = _graph.get("nodes", [])
+	_graph["nodes"] = nodes.filter(func(n): return not remove_ids.has(str(n.get("id", ""))))
+
+	var edges: Array = _graph.get("edges", [])
+	_graph["edges"] = edges.filter(func(e): return not (remove_ids.has(str(e.get("from", ""))) or remove_ids.has(str(e.get("to", "")))))
+
+	await _save_graph()
+	_parse_layouts()
+	if not _layouts.has(_active_layout_id):
+		_active_layout_id = _layouts.keys()[0] if not _layouts.is_empty() else ""
+	_apply_active_layout()
 
 
 func _on_start_pressed() -> void:
@@ -122,7 +332,7 @@ func _on_end_pressed() -> void:
 	var cards: Dictionary = _state.get("cards", {})
 	if not cards.is_empty():
 		_send_checkpoint()
-	_state = {"layout": "three-card", "cards": {}}
+	_state = {"cards": {}}
 	_acl = {}
 	_pending_client = {}
 	# Push the cleared state before disconnecting so any connected client's
@@ -137,10 +347,10 @@ func _on_end_pressed() -> void:
 func _on_deal_pressed() -> void:
 	var ids: Array = _deck.keys()
 	ids.shuffle()
-	var slots := ["1", "2", "3"]
+	var slot_ids: Array = _slots_for_layout(_active_layout_id).keys()
 	var cards := {}
 	var i := 0
-	for slot_id in slots:
+	for slot_id in slot_ids:
 		if i >= ids.size():
 			break
 		var card_id: String = ids[i]
@@ -149,12 +359,12 @@ func _on_deal_pressed() -> void:
 			"vertical": _new_card_layer(card_id),
 			"horizontal": null,
 		}
-	# Step-1-only stopgap: also deal a crossing card onto slot "2" so the
-	# two-layer rendering can be verified before real Deck controls (Step 4)
-	# and drag-to-layer placement (Step 5) exist. Remove once "Deal to Slot"/
-	# "Deal Next" land — see Meta/Reading-Model.md.
-	if cards.has("2") and i < ids.size():
-		cards["2"]["horizontal"] = _new_card_layer(ids[i])
+	# Step-1-only stopgap: also deal a crossing card onto the second slot so
+	# the two-layer rendering can be verified before real Deck controls
+	# (Step 4) and drag-to-layer placement (Step 5) exist. Remove once "Deal
+	# to Slot"/"Deal Next" land — see Meta/Reading-Model.md.
+	if slot_ids.size() >= 2 and i < ids.size():
+		cards[slot_ids[1]]["horizontal"] = _new_card_layer(ids[i])
 	_state["cards"] = cards
 	_world.apply_state(_state["cards"])
 	ApiClient.send_ws({"type": "state", "payload": _state})
@@ -251,7 +461,8 @@ func _show_card_context_menu(slot_id: String, layer: String) -> void:
 	menu.add_child(vbox)
 
 	var label := Label.new()
-	label.text = "Slot %s — %s" % [slot_id, ControllerPanel.LAYER_LABELS.get(layer, layer)]
+	var slot_name: String = _slots.get(slot_id, {}).get("name", slot_id)
+	label.text = "%s — %s" % [slot_name, ControllerPanel.LAYER_LABELS.get(layer, layer)]
 	label.add_theme_font_size_override("font_size", 14)
 	label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
 	label.custom_minimum_size = Vector2(160.0, 0.0)
@@ -317,7 +528,7 @@ func _send_checkpoint() -> void:
 			"client": (_pending_client if not _pending_client.is_empty() else null),
 			"scenario": {
 				"name": "Reading",
-				"layout": _state.get("layout", "three-card"),
+				"layout": _layouts.get(_active_layout_id, {}).get("name", ""),
 				"metrics": {},
 			},
 			"placements": placements,

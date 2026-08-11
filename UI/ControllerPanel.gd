@@ -10,17 +10,32 @@ signal start_pressed()
 signal end_pressed()
 signal deal_pressed()
 signal acl_changed(slot_id: String, layer: String, is_visible: bool, actions: Array)
+signal layout_selected(layout_id: String)
+signal layout_created(name: String)
+signal slot_added(name: String, x: float, y: float)
+signal slot_updated(slot_id: String, x: float, y: float)
+signal slot_deleted(slot_id: String)
 
 const PALETTE := [
 	Color(0.29, 0.62, 1.00),  # Blue   — Session
 	Color(0.30, 0.85, 0.85),  # Cyan   — Deck
 	Color(0.95, 0.75, 0.25),  # Yellow — Client Access
+	Color(0.95, 0.55, 0.20),  # Orange — Layout (spatial/compositional, matches Paradotz's convention)
 ]
 
 var _status_label: Label
 var _version_label: Label
 var _visible_cbs: Dictionary = {}   # "slot_id:layer" -> CheckBox
 var _flip_cbs: Dictionary = {}      # "slot_id:layer" -> CheckBox
+var _cards_form: VBoxContainer
+var _layout_menu: MenuButton
+var _layout_new_name: LineEdit
+var _slot_rows_form: VBoxContainer
+var _slot_new_name: LineEdit
+var _slot_new_x: SpinBox
+var _slot_new_y: SpinBox
+var _layouts: Dictionary = {}       # layout_id -> {"name"}, most recent set_layouts() call
+var _active_layout_id: String = ""
 
 
 func _ready() -> void:
@@ -33,6 +48,7 @@ func _ready() -> void:
 	_version_label.add_theme_color_override("font_color", Color(0.45, 0.45, 0.45))
 	add_child(_version_label)
 
+	_build_layout_section()
 	_build_session_section()
 	_build_deck_section()
 	_build_cards_section()
@@ -90,6 +106,130 @@ func _make_rollup(title: String, color: Color, form: Control) -> void:
 	)
 
 
+func _build_layout_section() -> void:
+	var form := VBoxContainer.new()
+
+	_layout_menu = MenuButton.new()
+	_layout_menu.text = "No Layout"
+	_layout_menu.get_popup().id_pressed.connect(_on_layout_menu_id_pressed)
+	form.add_child(_layout_menu)
+
+	var new_row := HBoxContainer.new()
+	_layout_new_name = LineEdit.new()
+	_layout_new_name.placeholder_text = "New layout name"
+	_layout_new_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	new_row.add_child(_layout_new_name)
+	var new_layout_btn := Button.new()
+	new_layout_btn.text = "New Layout"
+	new_layout_btn.pressed.connect(func() -> void:
+		var n: String = _layout_new_name.text.strip_edges()
+		if n != "":
+			layout_created.emit(n)
+			_layout_new_name.text = ""
+	)
+	new_row.add_child(new_layout_btn)
+	form.add_child(new_row)
+
+	form.add_child(HSeparator.new())
+
+	var slots_label := Label.new()
+	slots_label.text = "Slots"
+	slots_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	form.add_child(slots_label)
+
+	_slot_rows_form = VBoxContainer.new()
+	form.add_child(_slot_rows_form)
+
+	form.add_child(HSeparator.new())
+
+	var add_row := HBoxContainer.new()
+	_slot_new_name = LineEdit.new()
+	_slot_new_name.placeholder_text = "Slot name"
+	_slot_new_name.custom_minimum_size = Vector2(110, 0)
+	add_row.add_child(_slot_new_name)
+	_slot_new_x = _make_spin_box()
+	add_row.add_child(_slot_new_x)
+	_slot_new_y = _make_spin_box()
+	add_row.add_child(_slot_new_y)
+	var add_slot_btn := Button.new()
+	add_slot_btn.text = "Add Slot"
+	add_slot_btn.pressed.connect(func() -> void:
+		var n: String = _slot_new_name.text.strip_edges()
+		if n != "":
+			slot_added.emit(n, _slot_new_x.value, _slot_new_y.value)
+			_slot_new_name.text = ""
+	)
+	add_row.add_child(add_slot_btn)
+	form.add_child(add_row)
+
+	_make_rollup("Layout", _rollup_color(3), form)
+
+
+func _make_spin_box() -> SpinBox:
+	var sb := SpinBox.new()
+	sb.min_value = -2000
+	sb.max_value = 2000
+	sb.step = 1
+	sb.custom_minimum_size = Vector2(80, 0)
+	return sb
+
+
+func _on_layout_menu_id_pressed(id: int) -> void:
+	var popup := _layout_menu.get_popup()
+	var layout_id: String = str(popup.get_item_metadata(popup.get_item_index(id)))
+	layout_selected.emit(layout_id)
+
+
+## layouts: {layout_id: {"name": String}}
+func set_layouts(layouts: Dictionary, active_id: String) -> void:
+	_layouts = layouts
+	_active_layout_id = active_id
+	var popup := _layout_menu.get_popup()
+	popup.clear()
+	var i := 0
+	for layout_id in layouts.keys():
+		popup.add_item(layouts[layout_id].get("name", layout_id), i)
+		popup.set_item_metadata(i, layout_id)
+		i += 1
+	_layout_menu.text = layouts.get(active_id, {}).get("name", "No Layout")
+
+
+## slots: {slot_id: {"name": String, "x": float, "y": float}} — the active
+## layout's slots. Rebuilds both this section's editable rows and Client
+## Access's per-layer rows, since they always change together.
+func set_slots(slots: Dictionary) -> void:
+	for c in _slot_rows_form.get_children():
+		c.queue_free()
+	for slot_id in slots.keys():
+		var info: Dictionary = slots[slot_id]
+		var row := HBoxContainer.new()
+		var label := Label.new()
+		label.text = info.get("name", slot_id)
+		label.custom_minimum_size = Vector2(90, 0)
+		row.add_child(label)
+
+		var x_box := _make_spin_box()
+		x_box.value = info.get("x", 0.0)
+		row.add_child(x_box)
+		var y_box := _make_spin_box()
+		y_box.value = info.get("y", 0.0)
+		row.add_child(y_box)
+
+		var save_btn := Button.new()
+		save_btn.text = "Save"
+		save_btn.pressed.connect(func() -> void: slot_updated.emit(slot_id, x_box.value, y_box.value))
+		row.add_child(save_btn)
+
+		var del_btn := Button.new()
+		del_btn.text = "Delete"
+		del_btn.pressed.connect(func() -> void: slot_deleted.emit(slot_id))
+		row.add_child(del_btn)
+
+		_slot_rows_form.add_child(row)
+
+	_refresh_cards_section(slots)
+
+
 func _build_session_section() -> void:
 	var form := VBoxContainer.new()
 	_status_label = Label.new()
@@ -118,20 +258,28 @@ func _build_deck_section() -> void:
 	_make_rollup("Deck", _rollup_color(1), form)
 
 
-## Slot list is still hardcoded here, same as CardWorld's THREE_CARD_SLOTS —
-## becomes data-driven off the real Layout/Slot graph nodes in Step 2.
-const SLOT_IDS := ["1", "2", "3"]
 const LAYER_LABELS := {"vertical": "Vertical", "horizontal": "Horizontal"}
 
 
 func _build_cards_section() -> void:
-	var form := VBoxContainer.new()
-	for slot_id in SLOT_IDS:
+	_cards_form = VBoxContainer.new()
+	_make_rollup("Client Access", _rollup_color(2), _cards_form)
+
+
+## Rows are data-driven off the active Layout's real Slot list (set_slots()),
+## not a hardcoded slot count — see Meta/Reading-Model.md Step 2.
+func _refresh_cards_section(slots: Dictionary) -> void:
+	for c in _cards_form.get_children():
+		c.queue_free()
+	_visible_cbs.clear()
+	_flip_cbs.clear()
+	for slot_id in slots.keys():
+		var slot_name: String = slots[slot_id].get("name", slot_id)
 		for layer in ["vertical", "horizontal"]:
 			var key := "%s:%s" % [slot_id, layer]
 			var row := HBoxContainer.new()
 			var label := Label.new()
-			label.text = "Slot %s — %s" % [slot_id, LAYER_LABELS[layer]]
+			label.text = "%s — %s" % [slot_name, LAYER_LABELS[layer]]
 			label.custom_minimum_size = Vector2(160, 0)
 			row.add_child(label)
 
@@ -151,8 +299,7 @@ func _build_cards_section() -> void:
 			visible_cb.toggled.connect(func(_v: bool) -> void: emit_change.call())
 			flip_cb.toggled.connect(func(_v: bool) -> void: emit_change.call())
 
-			form.add_child(row)
-	_make_rollup("Client Access", _rollup_color(2), form)
+			_cards_form.add_child(row)
 
 
 ## Keeps these checkboxes honest when ACL changes from elsewhere (the card's

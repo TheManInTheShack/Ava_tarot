@@ -26,40 +26,58 @@ consulting, but nothing there should be built on directly.
 
 ---
 
-## Current State (as of 2026-08-08)
+## Current State (as of 2026-08-11)
 
-**Deployed and verified working end-to-end on avareads.com**, tested live
-across two real devices (phone as client, second session as controller):
-session start → deal → controller toggles a card visible + flippable →
-client sees it appear → client taps to flip → reflects on both sides →
-End Reading writes a Scenario node + Client node + placement edges into the
-`tarot-deck` graph, confirmed openable in Paradotz afterward.
+**Deployed and verified working end-to-end on avareads.com.** The 2026-08-08
+baseline (session start → deal → controller toggles visibility/flip → client
+sees it → checkpoint on End Reading) still holds; Steps 1–2 of the
+`Meta/Reading-Model.md` roadmap have since landed on top of it.
 
 ### What works
 - Public-tier login (`client_test` account, role `public`) → auto-redirects
   to `/portal` → "Enter Reading" → client mode, no menus
 - Controller login (admin/dev/user role) → dashboard → Paratarot card →
-  controller mode with rollup side panel
-- One layout: Three-Card (Past/Present/Future), fixed slot positions, no
-  drag yet
+  controller mode with rollup side panel, **landscape base resolution
+  (1920×1080, flipped from mobile-first 2026-08-11)** — matches Paradotz,
+  browser/laptop is the primary control surface
+- **Two-layer slots**: each slot has independent Vertical (primary) and
+  Horizontal (crossing/modifier) card positions, crossed via rotation,
+  each with its own ACL — not one card per slot anymore
+- **Layout/Slot are real graph nodes** (`Layout → Slot → Vertical/Horizontal`
+  in the `tarot-deck` graph, loaded live via `GET`/`PUT /graphs/tarot-deck` —
+  the same generic endpoints Paradotz itself edits a graph through, no
+  bespoke Paratarot endpoint). Layout section in the controller panel:
+  select/create layouts, add/move (numeric x/y fields, no drag yet)/delete
+  slots — every action is an immediate graph write, no separate save step.
+  A default "Classic Simple" 3-slot layout self-bootstraps into the graph
+  the first time it's empty.
+- Right-click context menu per card (ported UI pattern from Paradotz's
+  `Editor.gd`): Show/Hide, Turn (flip), Invert (upright/reversed)
 - Session lifecycle: Start Reading (creates a session server-side, or
   rejoins the site's one active session), End Reading (writes the
-  checkpoint, ends the session for all connected clients)
-- Deal Three-Card: picks 3 random cards from `Data/cards.json`, face-down,
-  ~25% reversed
+  checkpoint, ends the session for all connected clients) — still the
+  pre-Step-3 model, no formal Session node yet
+- Deal Three-Card: deals one vertical card per slot in the active layout
+  from `Data/cards.json`, face-down, ~25% reversed (still a fixed "deal to
+  every slot at once" button — real Deck controls are Step 4)
 - Tap-to-flip: controller can flip any of its own cards directly; client can
   flip only a card the controller has currently granted the `flip` action on
-- Live ACL: per-slot visible/actions toggles in the Client Access rollup
-  section, broadcast immediately over the WebSocket
+- Live ACL: per-layer (not per-slot) visible/actions toggles in the Client
+  Access rollup section, broadcast immediately over the WebSocket
 - Reading checkpoint on End Reading: Client node (if a client connected),
-  Scenario node, PLACED edges from Scenario → each dealt card — written
-  through the same access-checked graph-write path every other Grant app
-  uses, into the existing `tarot-deck` graph (grows in place, doesn't create
-  a new graph per reading)
+  Scenario node, PLACED edges from Scenario → each dealt card (now carrying
+  a `layer` property) — written through the same access-checked graph-write
+  path every other Grant app uses, into the existing `tarot-deck` graph
+  (grows in place, doesn't create a new graph per reading)
 
 ### What is not yet done (deliberately deferred, not forgotten)
-- Card dragging / freeform placement (cards are fixed to their slot)
-- Celtic Cross / Ava's Celtic Cross layouts (only Three-Card exists)
+- Card dragging / freeform placement (cards and slots are both fixed to
+  numeric-field-set positions; dragging is Step 5)
+- Session as a formal graph entity, Client rename completeness (MBTI-style
+  properties, `display_name`), Traits, Background, the loose-card/`MODIFIES`
+  modifier mechanic — Steps 3, 5, 6 of the roadmap
+- Celtic Cross / Ava's Celtic Cross layouts (buildable now via the Layout
+  editor, just not pre-seeded)
 - `point` and `pick` ACL actions (protocol supports them; only `flip` is
   wired up client-side)
 - Card info/meanings panel, reading history browser
@@ -98,15 +116,17 @@ ava_tarot/
 │                                  for one fixed 3-slot layout that fits on screen)
 ├── UI/
 │   ├── ControllerPanel.gd      ← rollup-panel pattern ported from Paradotz's GraphPanel.gd;
-│   │                              Session / Deck / Client Access sections
+│   │                              Layout / Session / Deck / Client Access sections
 │   └── ClientOverlay.gd        ← no menus — bottom action bar, only shows currently-granted
 │                                  actions for the tapped card
 ├── Cards/
 │   ├── Major Arcana/          ← 22 vault .md files (MA-00 through MA-21) — data, not code
 │   └── Minor Arcana/          ← 56 vault .md files across 4 suits — data, not code
 ├── Data/
-│   ├── cards.json             ← 78 nodes, 286 edges — source of truth the Godot app reads at runtime
-│   └── layouts.json           ← layout definitions (only Three-Card actually used right now)
+│   └── cards.json             ← 78 nodes, 286 edges — source of truth the Godot app reads at runtime
+│                                  (layouts.json retired 2026-08-11 — Layout/Slot are real graph
+│                                  nodes now, loaded live from tarot-deck via GET/PUT /graphs/,
+│                                  same generic endpoints Paradotz itself edits a graph through)
 ├── Meta/                      ← Card-Schema.md, Graph-Index.md, Edge-Types.md, Reading-Model.md
 │                                  (vault documentation, unchanged by the rewrite)
 ├── Assets/Images/             ← 78 card PNGs + card_back_default.png (not yet drawn on the table)
@@ -198,13 +218,9 @@ mechanics, controller panel structure). Ordered by actual dependency, not
 importance — the hard spine is 1 → 2 → 3 → 5 → 7; Steps 4 and 6 are
 pluggable wherever convenient once their own prerequisites are met.
 
-1. **Two-layer slot rendering**, still on the hardcoded 3-slot layout — prove
-   Vertical/Horizontal crossed rendering, per-layer ACL, and the right-click
-   menu (Show/Hide/Turn/Invert) before touching graph schema.
-2. **Layout/Slot as real graph nodes** — promote `THREE_CARD_SLOTS` into
-   `Layout → Slot → Vertical/Horizontal` graph nodes; build the Layout
-   section's slot editor (instantiate/move/delete/freeze). Retires the dead
-   `Data/layouts.json` for good.
+1. ~~**Two-layer slot rendering**~~ — done 2026-08-11.
+2. ~~**Layout/Slot as real graph nodes**~~ — done 2026-08-11. Numeric x/y
+   fields for now, not drag (that's Step 5). `Data/layouts.json` retired.
 3. **Session as a formal entity**, plus `display_name` + the six test
    personas — Session node/numbering/timestamps, the client picker, the
    Session panel split, checkpoint rewrite for the Session↔Client↔Scenario
