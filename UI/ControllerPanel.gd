@@ -165,6 +165,23 @@ func _build_layout_section() -> void:
 	_make_rollup("Layout", _rollup_color(3), form)
 
 
+## Ported pattern (not code) from Paradotz's NodePanel.gd:_on_delete_pressed —
+## same ConfirmationDialog shape, same confirmed/canceled queue_free cleanup.
+func _confirm_delete_slot(slot_id: String, slot_name: String) -> void:
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "Delete Slot"
+	dialog.dialog_text = "Delete slot \"%s\"?\nAny card currently placed here will be lost.\nThis cannot be undone." % slot_name
+	dialog.ok_button_text = "Delete"
+	dialog.cancel_button_text = "Cancel"
+	add_child(dialog)
+	dialog.confirmed.connect(func() -> void:
+		slot_deleted.emit(slot_id)
+		dialog.queue_free()
+	)
+	dialog.canceled.connect(func() -> void: dialog.queue_free())
+	dialog.popup_centered()
+
+
 func _make_spin_box() -> SpinBox:
 	var sb := SpinBox.new()
 	sb.min_value = -2000
@@ -222,7 +239,8 @@ func set_slots(slots: Dictionary) -> void:
 
 		var del_btn := Button.new()
 		del_btn.text = "Delete"
-		del_btn.pressed.connect(func() -> void: slot_deleted.emit(slot_id))
+		var slot_name: String = info.get("name", slot_id)
+		del_btn.pressed.connect(func() -> void: _confirm_delete_slot(slot_id, slot_name))
 		row.add_child(del_btn)
 
 		_slot_rows_form.add_child(row)

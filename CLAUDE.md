@@ -221,6 +221,12 @@ pluggable wherever convenient once their own prerequisites are met.
 1. ~~**Two-layer slot rendering**~~ — done 2026-08-11.
 2. ~~**Layout/Slot as real graph nodes**~~ — done 2026-08-11. Numeric x/y
    fields for now, not drag (that's Step 5). `Data/layouts.json` retired.
+   Deletion now guarded by a `ConfirmationDialog` (ported from Paradotz's
+   `NodePanel.gd:_on_delete_pressed` pattern); creating a new layout clears
+   the table first. Follow-up noted, not yet done: hide the slot editor's
+   x/y fields behind a "Modify" button (same button Step 5's drag will need
+   anyway) instead of always-visible SpinBoxes — deliberately deferred to
+   land alongside drag rather than build twice.
 3. **Session as a formal entity**, plus `display_name` + the six test
    personas — Session node/numbering/timestamps, the client picker, the
    Session panel split, checkpoint rewrite for the Session↔Client↔Scenario

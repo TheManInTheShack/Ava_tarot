@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.2.0"
+const VERSION := "0.2.1"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -220,6 +220,19 @@ func _apply_active_layout() -> void:
 	_world.set_slots(active_slots)
 
 
+## Clears whatever's currently dealt — a different layout's slot ids don't
+## match the new one's, so leftover cards would otherwise render collapsed
+## at the origin instead of just vanishing. Used on layout creation
+## (explicitly, so a new layout starts from a clean table ready for slots)
+## and on switching to a different existing layout (same staleness problem).
+func _reset_table() -> void:
+	_state = {"cards": {}}
+	_acl = {}
+	_world.apply_state(_state["cards"])
+	ApiClient.send_ws({"type": "state", "payload": _state})
+	ApiClient.send_ws({"type": "acl", "payload": _acl})
+
+
 func _save_graph() -> void:
 	var result: Dictionary = await ApiClient.save_graph(GRAPH_NAME, _graph)
 	if not result.is_empty():
@@ -261,7 +274,10 @@ func _create_slot_with_layers(layout_id: String, name: String, x: float, y: floa
 
 
 func _on_layout_selected(layout_id: String) -> void:
+	if layout_id == _active_layout_id:
+		return
 	_active_layout_id = layout_id
+	_reset_table()
 	_apply_active_layout()
 
 
@@ -270,6 +286,7 @@ func _on_layout_created(name: String) -> void:
 	await _save_graph()
 	_parse_layouts()
 	_active_layout_id = new_id
+	_reset_table()
 	_apply_active_layout()
 
 
@@ -296,6 +313,8 @@ func _on_slot_updated(slot_id: String, x: float, y: float) -> void:
 	_apply_active_layout()
 
 
+## Only ever called after ControllerPanel's own delete-confirmation dialog —
+## see _confirm_delete_slot there.
 func _on_slot_deleted(slot_id: String) -> void:
 	if not _slots.has(slot_id):
 		return
@@ -312,6 +331,16 @@ func _on_slot_deleted(slot_id: String) -> void:
 	_parse_layouts()
 	if not _layouts.has(_active_layout_id):
 		_active_layout_id = _layouts.keys()[0] if not _layouts.is_empty() else ""
+
+	# Match the confirmation dialog's promise: any card on this slot is
+	# actually gone, not left rendering collapsed at the origin.
+	var cards: Dictionary = _state.get("cards", {})
+	if cards.erase(slot_id):
+		_state["cards"] = cards
+		_acl.erase(slot_id)
+		ApiClient.send_ws({"type": "state", "payload": _state})
+		ApiClient.send_ws({"type": "acl", "payload": _acl})
+
 	_apply_active_layout()
 
 
