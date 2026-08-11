@@ -80,7 +80,9 @@ End Reading writes a Scenario node + Client node + placement edges into the
 ```
 ava_tarot/
 ├── CLAUDE.md                  ← you are here
-├── project.godot              ← Godot 4, GL Compatibility, 1080×1920, canvas_items stretch
+├── project.godot              ← Godot 4, GL Compatibility, 1920×1080 (landscape, browser-first,
+│                                  flipped 2026-08-11 from mobile-first 1080×1920 — laptop browser
+│                                  is the primary control surface, mobile secondary), canvas_items stretch
 ├── export_presets.cfg         ← Web preset; thread_support off, no COOP/COEP required
 ├── Autoloads/
 │   └── ApiClient.gd           ← REST (idiom mirrored from Paradotz's GraphStore.gd) + WebSocketPeer

@@ -14,7 +14,7 @@ const DECK_PATH := "res://Data/cards.json"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.1.0"
+const VERSION := "0.1.1"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -252,9 +252,9 @@ func _show_card_context_menu(slot_id: String, layer: String) -> void:
 
 	var label := Label.new()
 	label.text = "Slot %s — %s" % [slot_id, ControllerPanel.LAYER_LABELS.get(layer, layer)]
-	label.add_theme_font_size_override("font_size", 18)
+	label.add_theme_font_size_override("font_size", 14)
 	label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
-	label.custom_minimum_size = Vector2(220.0, 0.0)
+	label.custom_minimum_size = Vector2(160.0, 0.0)
 	vbox.add_child(label)
 	vbox.add_child(HSeparator.new())
 
@@ -271,9 +271,9 @@ func _add_ctx_button(vbox: VBoxContainer, text: String, cb: Callable) -> void:
 	btn.text = text
 	btn.flat = true
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	btn.custom_minimum_size = Vector2(220.0, 56.0)
+	btn.custom_minimum_size = Vector2(160.0, 40.0)
 	btn.add_theme_color_override("font_color", Color(0.88, 0.88, 0.88))
-	btn.add_theme_font_size_override("font_size", 19)
+	btn.add_theme_font_size_override("font_size", 14)
 	btn.pressed.connect(func() -> void:
 		cb.call()
 		_hide_context_menu()

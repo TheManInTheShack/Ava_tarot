@@ -11,7 +11,7 @@ extends Control
 signal tapped(slot_id: String, layer: String)
 signal context_requested(slot_id: String, layer: String)
 
-const CARD_SIZE := Vector2(220, 360)
+const CARD_SIZE := Vector2(160, 280)
 
 var slot_id: String = ""
 var layer: String = "vertical"       # "vertical" (primary) or "horizontal" (crossing/modifier)
@@ -35,14 +35,14 @@ func _ready() -> void:
 func _draw() -> void:
 	var rect := Rect2(Vector2.ZERO, CARD_SIZE)
 	draw_rect(rect, Color(0.08, 0.08, 0.08), true)
-	draw_rect(rect, Color(0.3, 0.3, 0.3), false, 3.0)
+	draw_rect(rect, Color(0.3, 0.3, 0.3), false, 2.0)
 
 	if face_up:
 		if front_texture != null:
 			draw_texture_rect(front_texture, rect, false)
 		else:
-			draw_string(ThemeDB.fallback_font, Vector2(12, CARD_SIZE.y / 2.0), card_name,
-				HORIZONTAL_ALIGNMENT_LEFT, CARD_SIZE.x - 24, 24)
+			draw_string(ThemeDB.fallback_font, Vector2(10, CARD_SIZE.y / 2.0), card_name,
+				HORIZONTAL_ALIGNMENT_LEFT, CARD_SIZE.x - 20, 18)
 	else:
 		if back_texture != null:
 			draw_texture_rect(back_texture, rect, false)
@@ -50,7 +50,7 @@ func _draw() -> void:
 			draw_rect(rect, Color(0.15, 0.1, 0.25), true)
 
 	if interactive:
-		draw_rect(rect, Color(0.63, 0.78, 0.2), false, 4.0)
+		draw_rect(rect, Color(0.63, 0.78, 0.2), false, 3.0)
 
 
 func set_face_up(value: bool) -> void:

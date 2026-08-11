@@ -19,9 +19,9 @@ signal card_context_requested(slot_id: String, layer: String)
 const LAYERS := ["vertical", "horizontal"]
 
 const THREE_CARD_SLOTS := {
-	"1": Vector2(90, 700),
-	"2": Vector2(430, 700),
-	"3": Vector2(770, 700),
+	"1": Vector2(120, 380),
+	"2": Vector2(480, 380),
+	"3": Vector2(840, 380),
 }
 const SLOT_LABELS := {
 	"1": "Past",
@@ -47,7 +47,7 @@ func _ready() -> void:
 	for slot_id in THREE_CARD_SLOTS:
 		var label := Label.new()
 		label.text = SLOT_LABELS.get(slot_id, "")
-		label.position = THREE_CARD_SLOTS[slot_id] + Vector2(0, -40)
+		label.position = THREE_CARD_SLOTS[slot_id] + Vector2(0, -26)
 		label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
 		_world.add_child(label)
 
