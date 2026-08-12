@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.4.0"
+const VERSION := "0.4.1"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -105,6 +105,7 @@ func _setup_controller() -> void:
 	layout.add_child(_world)
 
 	_panel.start_pressed.connect(_on_start_pressed)
+	_panel.record_pressed.connect(_on_record_pressed)
 	_panel.end_pressed.connect(_on_end_pressed)
 	_panel.deal_pressed.connect(_on_deal_pressed)
 	_panel.acl_changed.connect(_on_acl_changed)
@@ -384,6 +385,7 @@ func _on_start_pressed() -> void:
 	await _resync_graph()
 
 	ApiClient.connect_ws(session_id)
+	_panel.set_in_session(true)
 	_panel.set_status("Reading in progress — %s" % (client_display if client_display else client_username))
 	# Push current state immediately so a reconnect doesn't show stale data.
 	ApiClient.send_ws({"type": "state", "payload": _state})
@@ -406,7 +408,7 @@ func _resync_graph() -> void:
 func _on_end_pressed() -> void:
 	var cards: Dictionary = _state.get("cards", {})
 	if not cards.is_empty():
-		_send_checkpoint()
+		_send_checkpoint(true)
 		# No ack on the WS "save" message — give the server a moment to
 		# finish its own read-modify-write before resyncing, or we'd just
 		# refetch the pre-checkpoint graph. Not airtight without a real ack,
@@ -422,8 +424,30 @@ func _on_end_pressed() -> void:
 	ApiClient.send_ws({"type": "state", "payload": _state})
 	ApiClient.send_ws({"type": "acl", "payload": _acl})
 	ApiClient.disconnect_ws()
+	_panel.set_in_session(false)
 	_panel.set_status("No active reading")
 	_world.apply_state(_state["cards"])
+
+
+## Mid-session save — "record it and start over in the same session":
+## writes a Scenario but leaves the Session (and its ended_at) untouched, so
+## the table clears while the reading stays open. See Reading-Model.md.
+func _on_record_pressed() -> void:
+	var cards: Dictionary = _state.get("cards", {})
+	if cards.is_empty():
+		_panel.set_status("Nothing to record")
+		return
+	_send_checkpoint(false)
+	await get_tree().create_timer(0.5).timeout
+	await _resync_graph()
+	_state = {"cards": {}}
+	_acl = {}
+	ApiClient.send_ws({"type": "state", "payload": _state})
+	ApiClient.send_ws({"type": "acl", "payload": _acl})
+	_world.apply_state(_state["cards"])
+	var client_display: String = _pending_client.get("display_name", "")
+	var client_username: String = _pending_client.get("username", "")
+	_panel.set_status("Scenario recorded — %s" % (client_display if client_display else client_username))
 
 
 func _on_deal_pressed() -> void:
@@ -593,7 +617,7 @@ func _on_client_joined(user_id: int, username: String) -> void:
 		_pending_client = {"user_id": user_id, "username": username, "display_name": ""}
 
 
-func _send_checkpoint() -> void:
+func _send_checkpoint(close_session: bool) -> void:
 	var placements := []
 	var cards: Dictionary = _state.get("cards", {})
 	for slot_id in cards.keys():
@@ -618,10 +642,7 @@ func _send_checkpoint() -> void:
 				"metrics": {},
 			},
 			"placements": placements,
-			# Always true for now — End Reading is the only caller. A
-			# separate mid-session "Record Scenario" action (doesn't close
-			# the session) is the next piece; it'll send this as false.
-			"close_session": true,
+			"close_session": close_session,
 		},
 	})
 

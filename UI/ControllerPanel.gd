@@ -7,6 +7,7 @@ extends VBoxContainer
 ## section per concern. Built entirely in code, not a hand-authored .tscn.
 
 signal start_pressed()
+signal record_pressed()
 signal end_pressed()
 signal deal_pressed()
 signal acl_changed(slot_id: String, layer: String, is_visible: bool, actions: Array)
@@ -40,6 +41,8 @@ var _active_layout_id: String = ""
 var _client_menu: MenuButton
 var _clients: Array = []            # most recent set_clients() call
 var _selected_client_index: int = -1
+var _out_of_session_group: VBoxContainer
+var _in_session_group: VBoxContainer
 
 
 func _ready() -> void:
@@ -265,36 +268,55 @@ func set_slots(slots: Dictionary) -> void:
 	_refresh_cards_section(slots)
 
 
+## Split per Meta/Reading-Model.md's controller panel structure: the client
+## picker + Start belong to the out-of-session tier, Record Scenario/End
+## Reading to the in-session tier — never shown together, see set_in_session().
 func _build_session_section() -> void:
 	var form := VBoxContainer.new()
-
-	var client_label := Label.new()
-	client_label.text = "Client"
-	client_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
-	form.add_child(client_label)
-
-	_client_menu = MenuButton.new()
-	_client_menu.text = "No clients"
-	_client_menu.get_popup().id_pressed.connect(_on_client_menu_id_pressed)
-	form.add_child(_client_menu)
-
-	form.add_child(HSeparator.new())
 
 	_status_label = Label.new()
 	_status_label.text = "No active reading"
 	form.add_child(_status_label)
 
+	_out_of_session_group = VBoxContainer.new()
+	var client_label := Label.new()
+	client_label.text = "Client"
+	client_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	_out_of_session_group.add_child(client_label)
+
+	_client_menu = MenuButton.new()
+	_client_menu.text = "No clients"
+	_client_menu.get_popup().id_pressed.connect(_on_client_menu_id_pressed)
+	_out_of_session_group.add_child(_client_menu)
+
 	var start_btn := Button.new()
 	start_btn.text = "Start Reading"
 	start_btn.pressed.connect(func() -> void: start_pressed.emit())
-	form.add_child(start_btn)
+	_out_of_session_group.add_child(start_btn)
+	form.add_child(_out_of_session_group)
+
+	_in_session_group = VBoxContainer.new()
+	var record_btn := Button.new()
+	record_btn.text = "Record Scenario"
+	record_btn.pressed.connect(func() -> void: record_pressed.emit())
+	_in_session_group.add_child(record_btn)
 
 	var end_btn := Button.new()
 	end_btn.text = "End Reading"
 	end_btn.pressed.connect(func() -> void: end_pressed.emit())
-	form.add_child(end_btn)
+	_in_session_group.add_child(end_btn)
+	form.add_child(_in_session_group)
 
 	_make_rollup("Session", _rollup_color(0), form)
+	set_in_session(false)
+
+
+## Toggles which Session controls are shown — client picker/Start when out of
+## session, Record Scenario/End Reading when in one. Reading-Model.md: "what
+## it does depends on IN_SESSION vs. OUT_OF_SESSION."
+func set_in_session(in_session: bool) -> void:
+	_out_of_session_group.visible = not in_session
+	_in_session_group.visible = in_session
 
 
 ## clients: [{"id": int, "username": String, "display_name": String|null}, ...]
