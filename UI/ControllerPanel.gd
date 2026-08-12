@@ -36,6 +36,9 @@ var _slot_new_x: SpinBox
 var _slot_new_y: SpinBox
 var _layouts: Dictionary = {}       # layout_id -> {"name"}, most recent set_layouts() call
 var _active_layout_id: String = ""
+var _client_menu: MenuButton
+var _clients: Array = []            # most recent set_clients() call
+var _selected_client_index: int = -1
 
 
 func _ready() -> void:
@@ -250,6 +253,19 @@ func set_slots(slots: Dictionary) -> void:
 
 func _build_session_section() -> void:
 	var form := VBoxContainer.new()
+
+	var client_label := Label.new()
+	client_label.text = "Client"
+	client_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	form.add_child(client_label)
+
+	_client_menu = MenuButton.new()
+	_client_menu.text = "No clients"
+	_client_menu.get_popup().id_pressed.connect(_on_client_menu_id_pressed)
+	form.add_child(_client_menu)
+
+	form.add_child(HSeparator.new())
+
 	_status_label = Label.new()
 	_status_label.text = "No active reading"
 	form.add_child(_status_label)
@@ -265,6 +281,40 @@ func _build_session_section() -> void:
 	form.add_child(end_btn)
 
 	_make_rollup("Session", _rollup_color(0), form)
+
+
+## clients: [{"id": int, "username": String, "display_name": String|null}, ...]
+## — public-role accounts from GET /auth/clients.
+func set_clients(clients: Array) -> void:
+	_clients = clients
+	var popup := _client_menu.get_popup()
+	popup.clear()
+	for i in range(clients.size()):
+		var c: Dictionary = clients[i]
+		var label: String = c.get("display_name", "") if c.get("display_name", "") else c.get("username", "")
+		popup.add_item(label, i)
+	if clients.is_empty():
+		_client_menu.text = "No clients"
+	else:
+		_selected_client_index = 0
+		_client_menu.text = _label_for_client(clients[0])
+
+
+func _label_for_client(c: Dictionary) -> String:
+	var dn: String = c.get("display_name", "")
+	return dn if dn else c.get("username", "")
+
+
+func _on_client_menu_id_pressed(id: int) -> void:
+	_selected_client_index = id
+	_client_menu.text = _label_for_client(_clients[id])
+
+
+## Returns {} if no client is selected (e.g. the picker is still empty).
+func get_selected_client() -> Dictionary:
+	if _selected_client_index < 0 or _selected_client_index >= _clients.size():
+		return {}
+	return _clients[_selected_client_index]
 
 
 func _build_deck_section() -> void:

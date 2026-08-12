@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.2.1"
+const VERSION := "0.3.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -119,6 +119,7 @@ func _setup_controller() -> void:
 	ApiClient.client_joined.connect(_on_client_joined)
 
 	await _load_layouts()
+	_panel.set_clients(await ApiClient.get_clients())
 
 
 # ── Layout / Slot (graph-backed) ────────────────────────────────────────────
@@ -345,13 +346,28 @@ func _on_slot_deleted(slot_id: String) -> void:
 
 
 func _on_start_pressed() -> void:
+	var selected: Dictionary = _panel.get_selected_client()
+	if selected.is_empty():
+		_panel.set_status("Pick a client first")
+		return
+	# The controller declares the client at instantiation — see
+	# Meta/Reading-Model.md's Session design. display_name is already sitting
+	# right here in the picker's data, no cross-service header plumbing needed
+	# to get it onto the checkpoint's Client node.
+	var client_display: String = selected.get("display_name", "")
+	_pending_client = {
+		"user_id": selected.get("id", 0),
+		"username": selected.get("username", ""),
+		"display_name": client_display,
+	}
+
 	var existing: String = await ApiClient.get_current_session()
 	var session_id: String = existing if existing != "" else await ApiClient.start_session()
 	if session_id == "":
 		_panel.set_status("Failed to start session")
 		return
 	ApiClient.connect_ws(session_id)
-	_panel.set_status("Reading in progress")
+	_panel.set_status("Reading in progress — %s" % (client_display if client_display else _pending_client["username"]))
 	# Push current state immediately so a reconnect doesn't show stale data.
 	ApiClient.send_ws({"type": "state", "payload": _state})
 	ApiClient.send_ws({"type": "acl", "payload": _acl})
@@ -533,7 +549,11 @@ func _on_ctx_show_hide(slot_id: String, layer: String) -> void:
 
 
 func _on_client_joined(user_id: int, username: String) -> void:
-	_pending_client = {"user_id": user_id, "username": username}
+	# Start Reading already sets _pending_client from the controller's own
+	# picker selection (with display_name) — don't clobber it with the
+	# thinner client_joined shape. Only a fallback if that somehow didn't fire.
+	if _pending_client.is_empty():
+		_pending_client = {"user_id": user_id, "username": username, "display_name": ""}
 
 
 func _send_checkpoint() -> void:

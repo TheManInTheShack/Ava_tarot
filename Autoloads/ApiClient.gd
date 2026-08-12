@@ -74,6 +74,15 @@ func start_session() -> String:
 	return ""
 
 
+## Controller-side client picker for Session start — public-role accounts only.
+func get_clients() -> Array:
+	var r: Array = await _req(HTTPClient.METHOD_GET, _auth_url, "/clients")
+	if r[1] != 200:
+		return []
+	var parsed: Variant = _parse_body(r)
+	return parsed if parsed is Array else []
+
+
 func get_current_session() -> String:
 	var r: Array = await _req(HTTPClient.METHOD_GET, _base_url, "/paratarot/sessions/current")
 	if r[1] != 200:
