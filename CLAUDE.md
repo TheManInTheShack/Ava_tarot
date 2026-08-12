@@ -63,9 +63,14 @@ Step 3 of the `Meta/Reading-Model.md` roadmap have since landed on top of it.
   session: `session_number` (global sequential), `instantiated_at`,
   `client_joined_at` (stamped once, first connection), `ended_at` (stamped
   on checkpoint) as fixed properties; `Session--FOR_CLIENT-->Client` written
-  atomically at Start Reading. Still missing: the Session panel split
-  (Record Scenario vs. End Session) and diff-check-before-close — every End
-  Reading today unconditionally writes a Scenario if there are any cards.
+  atomically at Start Reading. Session rollup now splits into two
+  mutually-exclusive control groups (`ControllerPanel.set_in_session()`):
+  out-of-session (client picker + Start Reading) vs. in-session (Record
+  Scenario + End Reading). Record Scenario is a mid-session save — writes a
+  Scenario, clears the table, leaves the Session open. End Reading
+  diff-checks the closing placements against the last save
+  (`last_saved_placements` in `Grant/server/api-service/main.py`) and skips
+  a redundant Scenario write if nothing changed since the last Record.
 - Deal Three-Card: deals one vertical card per slot in the active layout
   from `Data/cards.json`, face-down, ~25% reversed (still a fixed "deal to
   every slot at once" button — real Deck controls are Step 4)
@@ -237,19 +242,18 @@ pluggable wherever convenient once their own prerequisites are met.
    x/y fields behind a "Modify" button (same button Step 5's drag will need
    anyway) instead of always-visible SpinBoxes — deliberately deferred to
    land alongside drag rather than build twice.
-3. **Session as a formal entity**, plus `display_name` + the six test
-   personas. 4 of 5 pieces done 2026-08-12: `display_name` +
-   `seed-personas.js`/`activate-personas.js` (six active, trait-seeded
-   personas — see Grant repo); the client picker in the Session section
-   (`GET /auth/clients`, required before Start Reading); the Session graph
-   node itself (`session_number`, three timestamps, `Session--FOR_CLIENT-->
-   Client` written atomically at start, `client_joined_at` stamped once on
-   first connect, `Session--HAS_SCENARIO-->Scenario` completing the
-   triangle, `ended_at` stamped on checkpoint). Remaining: the Session panel
-   split (out-of-session Start vs. in-session Record Scenario/End Session)
-   and the diff-check-before-close logic — today End Reading always writes
-   a Scenario unconditionally, there's no separate mid-session "Record and
-   keep going" action yet.
+3. ~~**Session as a formal entity**~~ — done 2026-08-12, all 5 pieces:
+   `display_name` + `seed-personas.js`/`activate-personas.js` (six active,
+   trait-seeded personas — see Grant repo); the client picker in the
+   Session section (`GET /auth/clients`, required before Start Reading);
+   the Session graph node itself (`session_number`, three timestamps,
+   `Session--FOR_CLIENT-->Client` written atomically at start,
+   `client_joined_at` stamped once on first connect,
+   `Session--HAS_SCENARIO-->Scenario` completing the triangle, `ended_at`
+   stamped on checkpoint); the Session panel split (out-of-session Start vs.
+   in-session Record Scenario/End Reading); and the diff-check-before-close
+   logic (skips a redundant Scenario write if nothing changed since the
+   last Record).
 4. **Deck controls + freeform out-of-session play** — persistent deck-order
    state, Reset/Reshuffle/Unshuffle/Deal to Slot/Deal Next/Deal Loose.
    Out-of-session dealing should produce zero graph writes for free, from
