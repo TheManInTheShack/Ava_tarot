@@ -15,6 +15,7 @@ signal layout_created(name: String)
 signal slot_added(name: String, x: float, y: float)
 signal slot_updated(slot_id: String, x: float, y: float)
 signal slot_deleted(slot_id: String)
+signal exit_pressed()
 
 const PALETTE := [
 	Color(0.29, 0.62, 1.00),  # Blue   — Session
@@ -45,11 +46,19 @@ func _ready() -> void:
 	custom_minimum_size = Vector2(320, 0)
 	add_theme_constant_override("separation", 8)
 
+	var top_row := HBoxContainer.new()
 	_version_label = Label.new()
 	_version_label.text = "Paratarot"
 	_version_label.add_theme_font_size_override("font_size", 16)
 	_version_label.add_theme_color_override("font_color", Color(0.45, 0.45, 0.45))
-	add_child(_version_label)
+	_version_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top_row.add_child(_version_label)
+
+	var exit_btn := Button.new()
+	exit_btn.text = "Exit"
+	exit_btn.pressed.connect(func() -> void: exit_pressed.emit())
+	top_row.add_child(exit_btn)
+	add_child(top_row)
 
 	_build_layout_section()
 	_build_session_section()
@@ -185,9 +194,14 @@ func _confirm_delete_slot(slot_id: String, slot_name: String) -> void:
 	dialog.popup_centered()
 
 
+## Floored at 0 — CardWorld's local origin sits immediately right of this
+## panel (HBoxContainer sibling layout, not an overlay), and Controls aren't
+## clipped to their parent's bounds by default, so a negative coordinate
+## would render a slot underneath the panel itself instead of just off the
+## visible table.
 func _make_spin_box() -> SpinBox:
 	var sb := SpinBox.new()
-	sb.min_value = -2000
+	sb.min_value = 0
 	sb.max_value = 2000
 	sb.step = 1
 	sb.custom_minimum_size = Vector2(80, 0)

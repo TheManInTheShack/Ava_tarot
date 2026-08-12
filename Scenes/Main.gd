@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.3.0"
+const VERSION := "0.3.1"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -112,6 +112,7 @@ func _setup_controller() -> void:
 	_panel.slot_added.connect(_on_slot_added)
 	_panel.slot_updated.connect(_on_slot_updated)
 	_panel.slot_deleted.connect(_on_slot_deleted)
+	_panel.exit_pressed.connect(_on_exit_pressed)
 	_world.card_tapped.connect(_on_controller_card_tapped)
 	_world.card_context_requested.connect(_on_card_context_requested)
 
@@ -343,6 +344,11 @@ func _on_slot_deleted(slot_id: String) -> void:
 		ApiClient.send_ws({"type": "acl", "payload": _acl})
 
 	_apply_active_layout()
+
+
+func _on_exit_pressed() -> void:
+	if OS.get_name() == "Web":
+		JavaScriptBridge.eval("window.location.href = '/dashboard'", true)
 
 
 func _on_start_pressed() -> void:
