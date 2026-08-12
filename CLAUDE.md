@@ -26,12 +26,12 @@ consulting, but nothing there should be built on directly.
 
 ---
 
-## Current State (as of 2026-08-11)
+## Current State (as of 2026-08-12)
 
 **Deployed and verified working end-to-end on avareads.com.** The 2026-08-08
 baseline (session start → deal → controller toggles visibility/flip → client
-sees it → checkpoint on End Reading) still holds; Steps 1–2 of the
-`Meta/Reading-Model.md` roadmap have since landed on top of it.
+sees it → checkpoint on End Reading) still holds; Steps 1–2 and most of
+Step 3 of the `Meta/Reading-Model.md` roadmap have since landed on top of it.
 
 ### What works
 - Public-tier login (`client_test` account, role `public`) → auto-redirects
@@ -53,10 +53,19 @@ sees it → checkpoint on End Reading) still holds; Steps 1–2 of the
   the first time it's empty.
 - Right-click context menu per card (ported UI pattern from Paradotz's
   `Editor.gd`): Show/Hide, Turn (flip), Invert (upright/reversed)
-- Session lifecycle: Start Reading (creates a session server-side, or
-  rejoins the site's one active session), End Reading (writes the
-  checkpoint, ends the session for all connected clients) — still the
-  pre-Step-3 model, no formal Session node yet
+- **Client picker required before Start Reading** — closed list of
+  registered `public`-role accounts (`GET /auth/clients`), includes the six
+  active, trait-seeded test personas (Eleanor Rigby, Billy Shears, Pamela
+  Polythene, Martha Mydear, Rocky Raccoon, Michelle Mybelle — login
+  `<name>`, shared password `paratarot-test`, `properties.is_test_persona`
+  on their Client nodes)
+- **Session is a real graph node** now, not just an in-memory WS routing
+  session: `session_number` (global sequential), `instantiated_at`,
+  `client_joined_at` (stamped once, first connection), `ended_at` (stamped
+  on checkpoint) as fixed properties; `Session--FOR_CLIENT-->Client` written
+  atomically at Start Reading. Still missing: the Session panel split
+  (Record Scenario vs. End Session) and diff-check-before-close — every End
+  Reading today unconditionally writes a Scenario if there are any cards.
 - Deal Three-Card: deals one vertical card per slot in the active layout
   from `Data/cards.json`, face-down, ~25% reversed (still a fixed "deal to
   every slot at once" button — real Deck controls are Step 4)
@@ -64,11 +73,12 @@ sees it → checkpoint on End Reading) still holds; Steps 1–2 of the
   flip only a card the controller has currently granted the `flip` action on
 - Live ACL: per-layer (not per-slot) visible/actions toggles in the Client
   Access rollup section, broadcast immediately over the WebSocket
-- Reading checkpoint on End Reading: Client node (if a client connected),
-  Scenario node, PLACED edges from Scenario → each dealt card (now carrying
-  a `layer` property) — written through the same access-checked graph-write
-  path every other Grant app uses, into the existing `tarot-deck` graph
-  (grows in place, doesn't create a new graph per reading)
+- Reading checkpoint on End Reading: Scenario node, `Session--HAS_SCENARIO-->
+  Scenario` and `Scenario--FOR_CLIENT-->Client` completing the triangle,
+  PLACED edges from Scenario → each dealt card (carrying a `layer`
+  property) — written through the same access-checked graph-write path
+  every other Grant app uses, into the existing `tarot-deck` graph (grows
+  in place, doesn't create a new graph per reading)
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Card dragging / freeform placement (cards and slots are both fixed to
@@ -228,9 +238,18 @@ pluggable wherever convenient once their own prerequisites are met.
    anyway) instead of always-visible SpinBoxes — deliberately deferred to
    land alongside drag rather than build twice.
 3. **Session as a formal entity**, plus `display_name` + the six test
-   personas — Session node/numbering/timestamps, the client picker, the
-   Session panel split, checkpoint rewrite for the Session↔Client↔Scenario
-   triangle with diff-check-before-close.
+   personas. 4 of 5 pieces done 2026-08-12: `display_name` +
+   `seed-personas.js`/`activate-personas.js` (six active, trait-seeded
+   personas — see Grant repo); the client picker in the Session section
+   (`GET /auth/clients`, required before Start Reading); the Session graph
+   node itself (`session_number`, three timestamps, `Session--FOR_CLIENT-->
+   Client` written atomically at start, `client_joined_at` stamped once on
+   first connect, `Session--HAS_SCENARIO-->Scenario` completing the
+   triangle, `ended_at` stamped on checkpoint). Remaining: the Session panel
+   split (out-of-session Start vs. in-session Record Scenario/End Session)
+   and the diff-check-before-close logic — today End Reading always writes
+   a Scenario unconditionally, there's no separate mid-session "Record and
+   keep going" action yet.
 4. **Deck controls + freeform out-of-session play** — persistent deck-order
    state, Reset/Reshuffle/Unshuffle/Deal to Slot/Deal Next/Deal Loose.
    Out-of-session dealing should produce zero graph writes for free, from

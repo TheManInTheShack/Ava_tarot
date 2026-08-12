@@ -64,14 +64,21 @@ func get_me() -> Dictionary:
 	return parsed if parsed is Dictionary else {}
 
 
-func start_session() -> String:
-	var r: Array = await _req(HTTPClient.METHOD_POST, _base_url, "/paratarot/sessions", "{}")
+## The controller declares the client at instantiation (Meta/Reading-Model.md)
+## — server writes the Session node + FOR_CLIENT edge atomically before this
+## returns. Returns {} on failure, else {"session_id", "session_number",
+## "graph_session_node_id"}.
+func start_session(client_user_id: int, client_username: String, client_display_name: String) -> Dictionary:
+	var body := JSON.stringify({
+		"client_user_id": client_user_id,
+		"client_username": client_username,
+		"client_display_name": client_display_name,
+	})
+	var r: Array = await _req(HTTPClient.METHOD_POST, _base_url, "/paratarot/sessions", body)
 	if r[1] != 201:
-		return ""
+		return {}
 	var parsed: Variant = _parse_body(r)
-	if parsed is Dictionary and parsed.has("session_id"):
-		return parsed["session_id"]
-	return ""
+	return parsed if parsed is Dictionary and parsed.has("session_id") else {}
 
 
 ## Controller-side client picker for Session start — public-role accounts only.
@@ -83,14 +90,14 @@ func get_clients() -> Array:
 	return parsed if parsed is Array else []
 
 
-func get_current_session() -> String:
+## Returns {} if there's no active reading, else {"session_id",
+## "session_number", "graph_session_node_id"} of the site's one active session.
+func get_current_session() -> Dictionary:
 	var r: Array = await _req(HTTPClient.METHOD_GET, _base_url, "/paratarot/sessions/current")
 	if r[1] != 200:
-		return ""
+		return {}
 	var parsed: Variant = _parse_body(r)
-	if parsed is Dictionary and parsed.has("session_id"):
-		return parsed["session_id"]
-	return ""
+	return parsed if parsed is Dictionary and parsed.has("session_id") else {}
 
 
 ## Generic graph read/write — the same GET/PUT /graphs/{name} endpoints

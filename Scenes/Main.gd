@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.3.1"
+const VERSION := "0.4.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -39,6 +39,7 @@ var _layouts: Dictionary = {}          # layout_id -> {"name"}
 var _slots: Dictionary = {}            # slot_id -> {"name","x","y","layout_id","vertical_id","horizontal_id"}
 var _active_layout_id: String = ""
 var _next_id_counter: int = 1          # shared node/edge id counter, seeded from the loaded graph
+var _graph_session_node_id: String = ""  # this session's Session graph node, set at Start Reading
 
 
 func _ready() -> void:
@@ -361,31 +362,61 @@ func _on_start_pressed() -> void:
 	# right here in the picker's data, no cross-service header plumbing needed
 	# to get it onto the checkpoint's Client node.
 	var client_display: String = selected.get("display_name", "")
+	var client_user_id: int = selected.get("id", 0)
+	var client_username: String = selected.get("username", "")
 	_pending_client = {
-		"user_id": selected.get("id", 0),
-		"username": selected.get("username", ""),
+		"user_id": client_user_id,
+		"username": client_username,
 		"display_name": client_display,
 	}
 
-	var existing: String = await ApiClient.get_current_session()
-	var session_id: String = existing if existing != "" else await ApiClient.start_session()
+	var session_info: Dictionary = await ApiClient.get_current_session()
+	if session_info.is_empty():
+		session_info = await ApiClient.start_session(client_user_id, client_username, client_display)
+	var session_id: String = session_info.get("session_id", "")
 	if session_id == "":
 		_panel.set_status("Failed to start session")
 		return
+	_graph_session_node_id = session_info.get("graph_session_node_id", "")
+	# The Session node (and possibly a new Client node) were just written
+	# server-side — resync so this controller's own Layout/Slot edits don't
+	# PUT a stale copy back and clobber them.
+	await _resync_graph()
+
 	ApiClient.connect_ws(session_id)
-	_panel.set_status("Reading in progress — %s" % (client_display if client_display else _pending_client["username"]))
+	_panel.set_status("Reading in progress — %s" % (client_display if client_display else client_username))
 	# Push current state immediately so a reconnect doesn't show stale data.
 	ApiClient.send_ws({"type": "state", "payload": _state})
 	ApiClient.send_ws({"type": "acl", "payload": _acl})
+
+
+## Re-fetches _graph from the server. Needed after anything that touches the
+## graph server-side outside Godot's own GET/PUT round trip (Session/Scenario/
+## Client writes go through the WS "save" path and /paratarot/sessions, not
+## through Main.gd's own _save_graph()) — otherwise a later Layout/Slot edit
+## would PUT a stale local copy back and silently erase what the server wrote.
+func _resync_graph() -> void:
+	var fresh: Dictionary = await ApiClient.get_graph(GRAPH_NAME)
+	if not fresh.is_empty():
+		_graph = fresh
+		_seed_id_counter()
+		_parse_layouts()
 
 
 func _on_end_pressed() -> void:
 	var cards: Dictionary = _state.get("cards", {})
 	if not cards.is_empty():
 		_send_checkpoint()
+		# No ack on the WS "save" message — give the server a moment to
+		# finish its own read-modify-write before resyncing, or we'd just
+		# refetch the pre-checkpoint graph. Not airtight without a real ack,
+		# but the controller isn't going to edit a Slot in the same instant.
+		await get_tree().create_timer(0.5).timeout
+		await _resync_graph()
 	_state = {"cards": {}}
 	_acl = {}
 	_pending_client = {}
+	_graph_session_node_id = ""
 	# Push the cleared state before disconnecting so any connected client's
 	# view resets instead of freezing on the last-seen cards.
 	ApiClient.send_ws({"type": "state", "payload": _state})
@@ -587,6 +618,10 @@ func _send_checkpoint() -> void:
 				"metrics": {},
 			},
 			"placements": placements,
+			# Always true for now — End Reading is the only caller. A
+			# separate mid-session "Record Scenario" action (doesn't close
+			# the session) is the next piece; it'll send this as false.
+			"close_session": true,
 		},
 	})
 
@@ -615,7 +650,8 @@ func _setup_client() -> void:
 
 
 func _join_current_session() -> void:
-	var session_id: String = await ApiClient.get_current_session()
+	var session_info: Dictionary = await ApiClient.get_current_session()
+	var session_id: String = session_info.get("session_id", "")
 	if session_id == "":
 		await get_tree().create_timer(3.0).timeout
 		_join_current_session()
