@@ -287,6 +287,28 @@ Tag/HAS_TAG mechanism**, not a new system:
   discretionary data Ava fills in as she learns it, not structurally
   load-bearing like Session's timestamps.
 
+### Trait weighting — OCEAN (Five Factor Model)
+
+Added 2026-08-11, seeded via `Grant/server/auth-service/seed-personas.js`.
+Traits aren't flat tags — each carries a **weighted edge**, not a property,
+toward one of five factor nodes:
+
+- `OceanFactor` node — 5 total (`Openness`, `Conscientiousness`,
+  `Extraversion`, `Agreeableness`, `Neuroticism`), catalog-like, created
+  once alongside the Card catalog.
+- `Trait --LOADS_ON--> OceanFactor` edge, property `weight: float`
+  (positive = loads toward the factor's high pole, negative = toward the
+  low pole; magnitude ~0.45–0.85 for a single-word marker).
+- 40-word seed bank (8 per factor, both poles), constructed from the
+  lexical Big-Five marker tradition (Goldberg / Saucier Mini-Markers) — not
+  a verbatim transcription of one specific published list, since precision-
+  to-source doesn't matter for a fictional persona-flavoring bank the way
+  it would for a real assessment instrument.
+- `Client --HAS_TRAIT--> Trait` unchanged from above — a Client's traits are
+  just which Trait nodes it's edged to; OCEAN scoring for a Client (if ever
+  wanted) would be a query over its traits' `LOADS_ON` weights, not a
+  stored value anywhere.
+
 ---
 
 ## Client identity: username vs. display name
@@ -303,15 +325,15 @@ Not a graph concept by itself, but denormalizes into the `Client` node's
   with fallback to `username` so nothing ever renders blank).
 - Standard handle-vs-display-name split (Slack/Discord/GitHub precedent),
   not something novel to invent.
-- Six test personas planned (Beatles-derived): Eleanor Rigby, Billy Shears,
-  Pamela Polythene, Martha Mydear, Rocky Raccoon, Michelle Mybelle — ordinary
-  `public`-role Client accounts through the existing invite flow, once
-  `display_name` exists. Real client registration (an authored opening/index
-  page) is still unbuilt; only the test-client login exists today.
+- Six test personas (Beatles-derived): Eleanor Rigby, Billy Shears, Pamela
+  Polythene, Martha Mydear, Rocky Raccoon, Michelle Mybelle — `public`-role
+  Client accounts seeded 2026-08-11 via `seed-personas.js` (see the OCEAN
+  section below), each with 4–6 random traits attached so they're distinct
+  out of the gate. Real client registration (an authored opening/index
+  page) is still unbuilt; only the test-client login exists otherwise.
 - Open question, not yet decided: does the client self-edit their own
   `display_name` later (parallel to existing self-serve password/recovery-
-  email), or admin-set-at-invite only? Either covers the immediate persona
-  need.
+  email), or admin-set-at-invite only? Currently admin-set-at-invite only.
 
 ---
 
