@@ -21,6 +21,9 @@ signal layout_created(name: String)
 signal slot_added(name: String, x: float, y: float)
 signal slot_updated(slot_id: String, x: float, y: float)
 signal slot_deleted(slot_id: String)
+signal trait_created(name: String)
+signal trait_toggled(trait_id: String, has_trait: bool)
+signal client_focus_changed()
 signal exit_pressed()
 
 const PALETTE := [
@@ -28,6 +31,7 @@ const PALETTE := [
 	Color(0.30, 0.85, 0.85),  # Cyan   — Deck
 	Color(0.95, 0.75, 0.25),  # Yellow — Client Access
 	Color(0.95, 0.55, 0.20),  # Orange — Layout (spatial/compositional, matches Paradotz's convention)
+	Color(0.75, 0.45, 0.95),  # Violet — Traits
 ]
 
 var _status_label: Label
@@ -52,6 +56,9 @@ var _slots_cache: Dictionary = {}   # most recent set_slots() call, for menu lab
 var _deck_slot_menu: MenuButton
 var _deck_slot_options: Array = []  # [{"slot_id","layer"}], parallel to popup item ids
 var _deck_slot_selected_index: int = -1
+var _traits_form: VBoxContainer
+var _traits_focus_label: Label
+var _trait_new_name: LineEdit
 
 
 func _ready() -> void:
@@ -75,6 +82,7 @@ func _ready() -> void:
 	_build_layout_section()
 	_build_session_section()
 	_build_deck_section()
+	_build_traits_section()
 	_build_cards_section()
 
 
@@ -355,6 +363,7 @@ func _label_for_client(c: Dictionary) -> String:
 func _on_client_menu_id_pressed(id: int) -> void:
 	_selected_client_index = id
 	_client_menu.text = _label_for_client(_clients[id])
+	client_focus_changed.emit()  # Traits section reads whoever's picked here when out of session
 
 
 ## Returns {} if no client is selected (e.g. the picker is still empty).
@@ -448,6 +457,75 @@ func _refresh_deck_slot_menu(slots: Dictionary) -> void:
 func _on_deck_slot_menu_id_pressed(id: int) -> void:
 	_deck_slot_selected_index = id
 	_deck_slot_menu.text = _deck_slot_label(_deck_slot_options[id])
+
+
+## State-independent (per Reading-Model.md) — "the Trait vocabulary and
+## assign to whichever Client is currently in focus." A checkbox list rather
+## than a full editor: this is a shortcut into the same HAS_TRAIT graph
+## write Paradotz itself could make, not a separate rules engine.
+func _build_traits_section() -> void:
+	var form := VBoxContainer.new()
+
+	_traits_focus_label = Label.new()
+	_traits_focus_label.text = "No client selected"
+	_traits_focus_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	form.add_child(_traits_focus_label)
+	form.add_child(HSeparator.new())
+
+	# The live vocabulary is already 80 traits (seed-personas.js's OCEAN bank)
+	# — one checkbox per trait in a plain VBoxContainer would run to ~2000px,
+	# taller than the whole 1080px viewport, with no other section of this
+	# panel having any scroll story to fall back on. Bounded ScrollContainer
+	# so the list scrolls internally instead of blowing out the panel.
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(0, 200)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	form.add_child(scroll)
+
+	_traits_form = VBoxContainer.new()
+	_traits_form.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(_traits_form)
+
+	form.add_child(HSeparator.new())
+
+	var add_row := HBoxContainer.new()
+	_trait_new_name = LineEdit.new()
+	_trait_new_name.placeholder_text = "New trait name"
+	_trait_new_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	add_row.add_child(_trait_new_name)
+	var add_btn := Button.new()
+	add_btn.text = "Add Trait"
+	add_btn.pressed.connect(func() -> void:
+		var n: String = _trait_new_name.text.strip_edges()
+		if n != "":
+			trait_created.emit(n)
+			_trait_new_name.text = ""
+	)
+	add_row.add_child(add_btn)
+	form.add_child(add_row)
+
+	_make_rollup("Traits", _rollup_color(4), form)
+
+
+## traits: {trait_id: name} — the full vocabulary. client_trait_ids:
+## {trait_id: true} — which of those the focused client currently has.
+## focus_label: "" when no client is focused (picker empty, out of
+## session) — checkboxes are shown disabled in that case rather than
+## hidden, so the vocabulary itself is still visible/reviewable.
+func set_traits(traits: Dictionary, client_trait_ids: Dictionary, focus_label: String) -> void:
+	_traits_focus_label.text = ("Traits for %s" % focus_label) if focus_label != "" else "No client selected"
+
+	for c in _traits_form.get_children():
+		c.queue_free()
+
+	var has_focus: bool = focus_label != ""
+	for trait_id in traits.keys():
+		var cb := CheckBox.new()
+		cb.text = traits[trait_id]
+		cb.disabled = not has_focus
+		cb.button_pressed = client_trait_ids.has(trait_id)
+		cb.toggled.connect(func(pressed: bool) -> void: trait_toggled.emit(trait_id, pressed))
+		_traits_form.add_child(cb)
 
 
 const LAYER_LABELS := {"vertical": "Vertical", "horizontal": "Horizontal"}

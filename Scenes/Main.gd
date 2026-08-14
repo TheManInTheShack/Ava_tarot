@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.6.1"
+const VERSION := "0.7.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -41,6 +41,7 @@ var _active_layout_id: String = ""
 var _next_id_counter: int = 1          # shared node/edge id counter, seeded from the loaded graph
 var _graph_session_node_id: String = ""  # this session's Session graph node, set at Start Reading
 var _deck_order: Array = []            # undealt cards, standing order, top = index 0 — see Deck section
+var _traits: Dictionary = {}           # trait_id -> name, parsed from _graph — see Traits section
 
 
 func _ready() -> void:
@@ -121,6 +122,9 @@ func _setup_controller() -> void:
 	_panel.slot_added.connect(_on_slot_added)
 	_panel.slot_updated.connect(_on_slot_updated)
 	_panel.slot_deleted.connect(_on_slot_deleted)
+	_panel.trait_created.connect(_on_trait_created)
+	_panel.trait_toggled.connect(_on_trait_toggled)
+	_panel.client_focus_changed.connect(_refresh_traits_panel)
 	_panel.exit_pressed.connect(_on_exit_pressed)
 	_world.card_tapped.connect(_on_controller_card_tapped)
 	_world.card_context_requested.connect(_on_card_context_requested)
@@ -130,6 +134,10 @@ func _setup_controller() -> void:
 
 	await _load_layouts()
 	_panel.set_clients(await ApiClient.get_clients())
+	# Traits' "current focus" depends on the client picker, so this can only
+	# happen once both the graph (trait vocabulary) and the picker (initial
+	# selection) are loaded — see _refresh_traits_panel's own doc comment.
+	_refresh_traits_panel()
 
 
 # ── Layout / Slot (graph-backed) ────────────────────────────────────────────
@@ -431,6 +439,7 @@ func _on_start_pressed() -> void:
 	ApiClient.connect_ws(session_id)
 	_panel.set_in_session(true)
 	_panel.set_status("Reading in progress — %s" % (client_display if client_display else client_username))
+	_refresh_traits_panel()  # focus is now this session's client, not the picker
 	# Push current state immediately so a reconnect doesn't show stale data.
 	ApiClient.send_ws({"type": "state", "payload": _state})
 	ApiClient.send_ws({"type": "acl", "payload": _acl})
@@ -473,6 +482,7 @@ func _on_end_pressed() -> void:
 	_panel.set_status("No active reading")
 	_world.apply_state(_state["cards"])
 	_world.set_loose(_state["loose"])
+	_refresh_traits_panel()  # focus reverts to whatever the picker has selected
 
 
 ## Mid-session save — "record it and start over in the same session":
@@ -496,6 +506,91 @@ func _on_record_pressed() -> void:
 	var client_display: String = _pending_client.get("display_name", "")
 	var client_username: String = _pending_client.get("username", "")
 	_panel.set_status("Scenario recorded — %s" % (client_display if client_display else client_username))
+
+
+# ── Traits (Step 6) ──────────────────────────────────────────────────────────
+# Reading-Model.md: "Exactly Paradotz's Tag/HAS_TAG mechanism, not a new
+# system" — Trait nodes + Client--HAS_TRAIT-->Trait edges, both already live
+# in the tarot-deck graph (seeded 2026-08-11 via seed-personas.js, complete
+# with the OCEAN Trait--LOADS_ON-->OceanFactor weighting) but never exposed
+# in this controller's own UI until now. State-independent tier — available
+# regardless of session state, per the doc's controller panel structure.
+
+func _parse_traits() -> void:
+	_traits.clear()
+	for n in _graph.get("nodes", []):
+		if n.get("type", "") == "Trait":
+			_traits[str(n["id"])] = n.get("name", "")
+
+
+func _client_trait_ids_for(client_id: String) -> Dictionary:
+	var result := {}
+	for e in _graph.get("edges", []):
+		if e.get("type", "") == "HAS_TRAIT" and str(e.get("from", "")) == client_id:
+			result[str(e.get("to", ""))] = true
+	return result
+
+
+## "The Trait vocabulary and assign to whichever Client is currently in
+## focus (the client picked for the next session, or the active session's
+## client)" — Reading-Model.md. In-session, _pending_client (set atomically
+## at Start Reading) IS that client. Out of session, it's whatever the
+## Session section's own picker currently has selected.
+func _focused_client_id() -> String:
+	if not _pending_client.is_empty():
+		return "client-%d" % int(_pending_client.get("user_id", 0))
+	var selected: Dictionary = _panel.get_selected_client()
+	if selected.is_empty():
+		return ""
+	return "client-%d" % int(selected.get("id", 0))
+
+
+func _focused_client_label() -> String:
+	var info: Dictionary = _pending_client if not _pending_client.is_empty() else _panel.get_selected_client()
+	if info.is_empty():
+		return ""
+	var dn: String = info.get("display_name", "")
+	return dn if dn != "" else info.get("username", "")
+
+
+## Called after anything that could change either the trait vocabulary, the
+## focused client's assigned traits, or which client is focused at all
+## (Start/End Reading, the picker's own selection, adding/toggling a trait).
+func _refresh_traits_panel() -> void:
+	_parse_traits()
+	var client_id := _focused_client_id()
+	var client_trait_ids: Dictionary = _client_trait_ids_for(client_id) if client_id != "" else {}
+	_panel.set_traits(_traits, client_trait_ids, _focused_client_label())
+
+
+func _on_trait_created(name: String) -> void:
+	var n: String = name.strip_edges()
+	if n == "":
+		return
+	var nodes: Array = _graph.get("nodes", [])
+	nodes.append({"id": _next_id(), "type": "Trait", "name": n, "properties": {}})
+	_graph["nodes"] = nodes
+	await _save_graph()
+	_refresh_traits_panel()
+
+
+## No-op if no client is currently focused (ControllerPanel disables the
+## checkboxes in that case, but a queued signal from just before a picker
+## change is cheap to guard against here too).
+func _on_trait_toggled(trait_id: String, has_trait: bool) -> void:
+	var client_id := _focused_client_id()
+	if client_id == "":
+		return
+	var edges: Array = _graph.get("edges", [])
+	if has_trait:
+		var already: bool = edges.any(func(e): return e.get("type", "") == "HAS_TRAIT" and str(e.get("from", "")) == client_id and str(e.get("to", "")) == trait_id)
+		if not already:
+			edges.append({"id": _next_id(), "from": client_id, "to": trait_id, "type": "HAS_TRAIT", "properties": {}})
+	else:
+		edges = edges.filter(func(e): return not (e.get("type", "") == "HAS_TRAIT" and str(e.get("from", "")) == client_id and str(e.get("to", "")) == trait_id))
+	_graph["edges"] = edges
+	await _save_graph()
+	_refresh_traits_panel()
 
 
 # ── Deck (Step 4) ────────────────────────────────────────────────────────────

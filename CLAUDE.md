@@ -31,13 +31,15 @@ consulting, but nothing there should be built on directly.
 **The 2026-08-08 baseline** (session start → deal → controller toggles
 visibility/flip → client sees it → checkpoint on End Reading) **was verified
 working end-to-end on avareads.com by hands-on testing.** Steps 1–4, 5
-(piece 1 of 2), and 7 of the `Meta/Reading-Model.md` roadmap have since
-landed and been deployed on top of it (2026-08-11 through 2026-08-13), but
-**not yet re-verified interactively** — that session's testing happened from
-a different machine than the one doing the building, so treat everything
-past the 2026-08-08 baseline as deployed-but-unconfirmed until someone
-actually clicks through it. Deal Loose/Modify Card's connecting-line
-rendering especially — it's the one piece of new drawing code in this batch.
+(piece 1 of 2), 6 (Traits half), and 7 of the `Meta/Reading-Model.md`
+roadmap have since landed and been deployed on top of it (2026-08-11
+through 2026-08-13), but **not yet re-verified interactively** — that
+session's testing happened from a different machine than the one doing the
+building, so treat everything past the 2026-08-08 baseline as
+deployed-but-unconfirmed until someone actually clicks through it. Deal
+Loose/Modify Card's connecting-line rendering and the Traits list's new
+`ScrollContainer` especially — both are new drawing/layout code in this
+batch with zero eyes on them yet.
 
 ### What works
 - Public-tier login (`client_test` account, role `public`) → auto-redirects
@@ -104,6 +106,13 @@ rendering especially — it's the one piece of new drawing code in this batch.
   matches Reading-Model.md's "a Layout switch is just another trigger for
   that mechanic, not a new one." Also resets `_deck_order` to canonical
   order on any switch ("reshuffles back to its ready state").
+- **Traits manager** (Step 6, half done 2026-08-13): a state-independent
+  Traits rollup checkbox-lists the vocabulary (80 live, seeded 2026-08-11)
+  against whichever Client is currently in focus (in-session client, or the
+  Session picker's selection out of session), toggling writes/removes
+  `Client--HAS_TRAIT-->Trait` edges directly; a text field adds new Trait
+  nodes. The checkbox list is wrapped in a bounded `ScrollContainer` — 80
+  unwrapped checkboxes would have run taller than the whole viewport.
 - Tap-to-flip: controller can flip any of its own cards directly; client can
   flip only a card the controller has currently granted the `flip` action on
 - Live ACL: per-layer (not per-slot) visible/actions toggles in the Client
@@ -119,7 +128,7 @@ rendering especially — it's the one piece of new drawing code in this batch.
 - Card dragging / freeform placement (cards and slots are both fixed to
   numeric-field-set positions or the Deck section's controls; needs
   hands-on testing to build safely — see Step 5 piece 2 below)
-- Traits & Background (Step 6) — small Tag-style managed lists, not started
+- Background (Step 6's other half) — per-Layout fill-color/image, not started
 - Celtic Cross / Ava's Celtic Cross layouts (buildable now via the Layout
   editor, just not pre-seeded)
 - `point` and `pick` ACL actions (protocol supports them; only `flip` is
@@ -298,10 +307,17 @@ pluggable wherever convenient once their own prerequisites are met.
    testing on a live tool. Do this one with the user at a computer able to
    click through it, not unattended.
 6. **Traits & Background** — both small, Tag-style managed lists,
-   essentially independent of everything above. Not started; note the OCEAN
-   trait-weighting schema (`Trait--LOADS_ON-->OceanFactor`) already exists
-   server-side from the persona-seeding work, just not exposed in this
-   controller's UI yet.
+   essentially independent of everything above. **Traits half done
+   2026-08-13**: a Traits rollup (state-independent tier) checkbox-lists the
+   vocabulary (already 80 live from seed-personas.js's OCEAN bank, including
+   the `Trait--LOADS_ON-->OceanFactor` weighting — that part predates this
+   UI and was already server-side, just unexposed until now) against
+   whichever Client is in focus, toggling writes/removes
+   `Client--HAS_TRAIT-->Trait` edges directly; a text field adds new Trait
+   nodes. "Focus" = `_pending_client` in-session, else the Session section's
+   own picker selection out of session, matching the doc's own phrasing.
+   Not done: Background (per-Layout `Layout--USES_BACKGROUND-->Background`,
+   fill-color swatch picker) — separate, unstarted.
 7. ~~**Layout switching mid-session**~~ — done 2026-08-13: switching or
    creating a Layout while in a session auto-saves first (same mechanic as
    Record Scenario) if there are any cards on the table, then resets
