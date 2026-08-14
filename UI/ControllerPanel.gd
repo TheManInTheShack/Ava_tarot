@@ -21,7 +21,7 @@ signal layout_created(name: String)
 signal layout_deleted(layout_id: String)
 signal layout_mod_mode_changed(on: bool)
 signal slot_added(name: String, x: float, y: float)
-signal slot_updated(slot_id: String, x: float, y: float)
+signal slots_saved(updates: Array)  # [{"slot_id","x","y"}, ...] — Save Layout's batch commit
 signal slot_deleted(slot_id: String)
 signal trait_created(name: String)
 signal trait_toggled(trait_id: String, has_trait: bool)
@@ -36,6 +36,12 @@ const PALETTE := [
 	Color(0.75, 0.45, 0.95),  # Violet — Traits
 ]
 
+## (0,0) landed a new slot right behind the panel, in the one corner of the
+## table nothing is ever clipped away from (Controls aren't clipped to their
+## parent's bounds by default — see _make_spin_box()'s own note on the same
+## problem). Roughly centered in the visible table area instead.
+const DEFAULT_NEW_SLOT_POS := Vector2(300.0, 300.0)
+
 var _status_label: Label
 var _version_label: Label
 var _visible_cbs: Dictionary = {}   # "slot_id:layer" -> CheckBox
@@ -48,6 +54,7 @@ var _layout_new_name: LineEdit
 var _layout_mod_group: VBoxContainer
 var _layout_mod_mode: bool = false
 var _slot_rows_form: VBoxContainer
+var _slot_row_boxes: Dictionary = {}  # slot_id -> {"x": SpinBox, "y": SpinBox}, read by Save Layout
 var _slot_new_name: LineEdit
 var _slot_new_x: SpinBox
 var _slot_new_y: SpinBox
@@ -68,7 +75,8 @@ var _trait_new_name: LineEdit
 
 
 func _ready() -> void:
-	custom_minimum_size = Vector2(320, 0)
+	# Width is enforced externally now (Main.gd wraps this node in a fixed-
+	# width ScrollContainer with SIZE_EXPAND_FILL) — see Main.gd's PANEL_W.
 	add_theme_constant_override("separation", 8)
 
 	var top_row := HBoxContainer.new()
@@ -162,7 +170,12 @@ func _build_layout_section() -> void:
 	browse_row.add_child(_layout_menu)
 	_layout_modify_btn = Button.new()
 	_layout_modify_btn.text = "Modify"
-	_layout_modify_btn.pressed.connect(func() -> void: _set_layout_mod_mode(not _layout_mod_mode))
+	_layout_modify_btn.pressed.connect(func() -> void:
+		if _layout_mod_mode:
+			_commit_and_exit_layout_mod_mode()
+		else:
+			set_layout_mod_mode(true)
+	)
 	browse_row.add_child(_layout_modify_btn)
 	form.add_child(browse_row)
 
@@ -180,7 +193,11 @@ func _build_layout_section() -> void:
 			layout_created.emit(n)
 			_layout_new_name.text = ""
 			_layout_new_row.visible = false
-			_set_layout_mod_mode(true)  # "then set a name and then it would go into modify mode"
+			# Entering mod mode happens on Main.gd's side (a plain
+			# set_layout_mod_mode(true) call) once the new layout actually
+			# becomes active — doing it here instead used to flash the OLD
+			# layout's slot list for a frame before the async graph write
+			# landed and swapped it.
 	)
 	_layout_new_row.add_child(create_btn)
 	form.add_child(_layout_new_row)
@@ -204,8 +221,10 @@ func _build_layout_section() -> void:
 	_slot_new_name.custom_minimum_size = Vector2(110, 0)
 	add_row.add_child(_slot_new_name)
 	_slot_new_x = _make_spin_box()
+	_slot_new_x.value = DEFAULT_NEW_SLOT_POS.x
 	add_row.add_child(_slot_new_x)
 	_slot_new_y = _make_spin_box()
+	_slot_new_y.value = DEFAULT_NEW_SLOT_POS.y
 	add_row.add_child(_slot_new_y)
 	var add_slot_btn := Button.new()
 	add_slot_btn.text = "Add Slot"
@@ -230,14 +249,32 @@ func _build_layout_section() -> void:
 	_make_rollup("Layout", _rollup_color(3), form)
 
 
-## CardWorld listens to this directly (see Main.gd's _setup_controller) to
-## show/hide the draggable slot markers only while actually editing a
-## layout — no drag input active at all outside modification mode.
-func _set_layout_mod_mode(on: bool) -> void:
+## Public: Main.gd calls this directly too, once a freshly-created layout
+## has actually become active (not from the Create button itself — doing it
+## there raced the async graph write and flashed the previous layout's slot
+## list for a frame first). CardWorld also listens to layout_mod_mode_changed
+## directly, to show/hide the draggable slot markers only in mod mode — no
+## drag input active at all outside it.
+func set_layout_mod_mode(on: bool) -> void:
 	_layout_mod_mode = on
 	_layout_mod_group.visible = on
-	_layout_modify_btn.text = "Done" if on else "Modify"
+	_layout_modify_btn.text = "Save Layout" if on else "Modify"
 	layout_mod_mode_changed.emit(on)
+
+
+## The Modify button becomes "Save Layout" while in mod mode (see above) —
+## clicking it then commits every slot row's current x/y in one batch
+## (there are no more per-row Save buttons) and exits mod mode. Dragging a
+## slot on the table still commits immediately on drop, same as before;
+## this is specifically for the numeric-field editing path.
+func _commit_and_exit_layout_mod_mode() -> void:
+	var updates: Array = []
+	for slot_id in _slot_row_boxes.keys():
+		var boxes: Dictionary = _slot_row_boxes[slot_id]
+		updates.append({"slot_id": slot_id, "x": boxes["x"].value, "y": boxes["y"].value})
+	if not updates.is_empty():
+		slots_saved.emit(updates)
+	set_layout_mod_mode(false)
 
 
 ## Ported pattern (not code) from Paradotz's NodePanel.gd:_on_delete_pressed —
@@ -269,18 +306,17 @@ func _confirm_delete_layout() -> void:
 	add_child(dialog)
 	dialog.confirmed.connect(func() -> void:
 		layout_deleted.emit(_active_layout_id)
-		_set_layout_mod_mode(false)
+		set_layout_mod_mode(false)  # no commit here — the layout itself is gone
 		dialog.queue_free()
 	)
 	dialog.canceled.connect(func() -> void: dialog.queue_free())
 	dialog.popup_centered()
 
 
-## Floored at 0 — CardWorld's local origin sits immediately right of this
-## panel (HBoxContainer sibling layout, not an overlay), and Controls aren't
-## clipped to their parent's bounds by default, so a negative coordinate
-## would render a slot underneath the panel itself instead of just off the
-## visible table.
+## Floored at 0 — CardWorld's local origin sits at Main.gd's PANEL_W offset
+## from the window's left edge, and Controls aren't clipped to their
+## parent's bounds by default, so a negative coordinate would render a slot
+## underneath the panel itself instead of just off the visible table.
 func _make_spin_box() -> SpinBox:
 	var sb := SpinBox.new()
 	sb.min_value = 0
@@ -301,12 +337,14 @@ func _on_layout_menu_id_pressed(id: int) -> void:
 		_layout_new_name.grab_focus()
 		return
 	_layout_new_row.visible = false
-	# Switching which layout you're looking at exits modification mode —
-	# mod mode is tied to a specific layout's slots, not a general-purpose
-	# toggle, so carrying it over onto a different selection would leave the
-	# Modify button's "Done" label pointing at the wrong layout.
+	# Switching which layout you're looking at exits modification mode
+	# without committing pending row edits — mod mode is tied to a specific
+	# layout's slots, not a general-purpose toggle, so carrying it over onto
+	# a different selection would leave "Save Layout" pointing at the wrong
+	# one. Explicit Save Layout is the only thing that commits row edits;
+	# switching away is "I didn't save that."
 	if _layout_mod_mode:
-		_set_layout_mod_mode(false)
+		set_layout_mod_mode(false)
 	layout_selected.emit(layout_id)
 
 
@@ -334,10 +372,15 @@ func set_layouts(layouts: Dictionary, active_id: String) -> void:
 ## slots: {slot_id: {"name": String, "x": float, "y": float}} — the active
 ## layout's slots. Rebuilds both this section's editable rows and Client
 ## Access's per-layer rows, since they always change together.
+## No per-row Save button anymore — a row's x/y fields are just pending
+## edits until "Save Layout" (the Modify button's label while in mod mode)
+## commits every row at once and exits mod mode. _slot_row_boxes is what
+## that commit reads from.
 func set_slots(slots: Dictionary) -> void:
 	_slots_cache = slots
 	for c in _slot_rows_form.get_children():
 		c.queue_free()
+	_slot_row_boxes.clear()
 	for slot_id in slots.keys():
 		var info: Dictionary = slots[slot_id]
 		var row := HBoxContainer.new()
@@ -352,11 +395,7 @@ func set_slots(slots: Dictionary) -> void:
 		var y_box := _make_spin_box()
 		y_box.value = info.get("y", 0.0)
 		row.add_child(y_box)
-
-		var save_btn := Button.new()
-		save_btn.text = "Save"
-		save_btn.pressed.connect(func() -> void: slot_updated.emit(slot_id, x_box.value, y_box.value))
-		row.add_child(save_btn)
+		_slot_row_boxes[slot_id] = {"x": x_box, "y": y_box}
 
 		var del_btn := Button.new()
 		del_btn.text = "Delete"

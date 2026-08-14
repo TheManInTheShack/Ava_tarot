@@ -286,8 +286,35 @@ pluggable wherever convenient once their own prerequisites are met.
    Layout, every Slot under it, their Vertical/Horizontal layers, and all
    touching edges — same shape as slot deletion, one level up; re-bootstraps
    a default layout if that was the last one). Switching the dropdown
-   selection while in mod mode exits it, so "Done"/"Modify" never points at
-   the wrong layout. The old always-visible x/y SpinBoxes are now
+   selection while in mod mode exits it (discarding pending row edits — see
+   below), so the Modify button never points at the wrong layout.
+
+   **Follow-up fixes, same day, from live testing:** (1) entering mod mode
+   for a brand-new layout used to flash the *previous* layout's slot list
+   for a frame — the Create button called it synchronously, racing the
+   async graph write. Main.gd now calls `_panel.set_layout_mod_mode(true)`
+   itself, only after the new layout is genuinely active. (2) Per-row Save
+   buttons are gone; the Modify button becomes **"Save Layout"** while in
+   mod mode, and clicking it batch-commits every row's current x/y in one
+   graph write via a new `slots_saved` signal, then exits mod mode. Drag
+   still commits immediately per-drop, unchanged — this only affects the
+   numeric-field path. (3) A new slot's default position moved off `(0,0)`
+   (`DEFAULT_NEW_SLOT_POS := Vector2(300, 300)`) — `(0,0)` always landed
+   behind the panel. (4) **The side panel + canvas layout was rebuilt**:
+   they used to be `HBoxContainer` siblings, which resizes children off
+   their *minimum* size — a wide rollup (Client Access) grew the whole
+   panel past its intended width, which shifted where CardWorld's local
+   coordinate origin actually landed on screen, which is the real reason
+   `(0,0)`-ish slots ended up behind the panel. Ported Paradotz's
+   `Editor.gd` technique instead: `Main`'s root `Control` holds the panel
+   (wrapped in a `ScrollContainer`, horizontal scroll disabled so overflow
+   clips instead of growing it) and CardWorld as plain siblings, each
+   positioned by anchor/offset math (`Main.PANEL_W := 320.0`) rather than
+   container auto-layout — the panel is now a hard 320px, period, and
+   CardWorld starts exactly there and fills the rest, regardless of which
+   rollups are open.
+
+   The old always-visible x/y SpinBoxes are now
    supplemented by **real drag-and-drop**: in mod mode, CardWorld shows a
    bordered placeholder per slot that can be click-dragged directly on the
    table (press-then-track-via-`_input()`, since `gui_input` alone stops

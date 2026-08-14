@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.8.0"
+const VERSION := "0.8.1"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -93,19 +93,46 @@ func _show_error(text: String) -> void:
 
 # ── Controller ───────────────────────────────────────────────────────────────
 
+## Fixed-width side panel + full-remaining-width canvas, positioned via
+## anchor/offset math directly on this Control root — ported technique (not
+## code) from Paradotz's Editor.gd, which solves the exact problem an
+## HBoxContainer here used to cause: HBoxContainer resizes children off
+## their minimum size, so a wide rollup (Client Access, with its per-layer
+## labels) grew the whole panel past PANEL_W, shifting where CardWorld's
+## local coordinate origin landed on screen and putting new slots/cards at
+## local (0,0) behind the panel. A plain Control parent never does that —
+## each sibling's rect is exactly what its own anchors/offsets say.
+const PANEL_W := 320.0
+
+
 func _setup_controller() -> void:
-	var layout := HBoxContainer.new()
-	layout.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(layout)
+	# ScrollContainer with horizontal scrolling off clips anything that's
+	# still too wide instead of growing the panel — Controls aren't clipped
+	# to their parent's bounds by default otherwise (the very bug this
+	# whole layout change exists to fix). Vertical scrolling stays on, so
+	# several rollups expanded at once scroll instead of overflowing the
+	# window's bottom edge.
+	var panel_scroll := ScrollContainer.new()
+	panel_scroll.anchor_left = 0.0
+	panel_scroll.anchor_right = 0.0
+	panel_scroll.anchor_top = 0.0
+	panel_scroll.anchor_bottom = 1.0
+	panel_scroll.offset_right = PANEL_W
+	panel_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	add_child(panel_scroll)
 
 	_panel = ControllerPanel.new()
-	layout.add_child(_panel)
+	_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel_scroll.add_child(_panel)
 	_panel.set_version(VERSION)
 
 	_world = CardWorld.new()
-	_world.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_world.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	layout.add_child(_world)
+	_world.anchor_left = 0.0
+	_world.anchor_right = 1.0
+	_world.anchor_top = 0.0
+	_world.anchor_bottom = 1.0
+	_world.offset_left = PANEL_W
+	add_child(_world)
 
 	_panel.start_pressed.connect(_on_start_pressed)
 	_panel.record_pressed.connect(_on_record_pressed)
@@ -122,7 +149,7 @@ func _setup_controller() -> void:
 	_panel.layout_deleted.connect(_on_layout_deleted)
 	_panel.layout_mod_mode_changed.connect(_world.set_layout_mod_mode)
 	_panel.slot_added.connect(_on_slot_added)
-	_panel.slot_updated.connect(_on_slot_updated)
+	_panel.slots_saved.connect(_on_slots_saved)
 	_panel.slot_deleted.connect(_on_slot_deleted)
 	_panel.trait_created.connect(_on_trait_created)
 	_panel.trait_toggled.connect(_on_trait_toggled)
@@ -347,6 +374,11 @@ func _on_layout_created(name: String) -> void:
 	_reset_table()
 	_reset_deck_to_ready_state()
 	_apply_active_layout()
+	# Only now, after the new layout is genuinely active and set_slots() has
+	# already pushed its (empty) slot list to the panel, does mod mode turn
+	# on — doing this from ControllerPanel's own Create button raced this
+	# whole async chain and flashed the previous layout's slots for a frame.
+	_panel.set_layout_mod_mode(true)
 
 
 func _on_slot_added(name: String, x: float, y: float) -> void:
@@ -358,6 +390,7 @@ func _on_slot_added(name: String, x: float, y: float) -> void:
 	_apply_active_layout()
 
 
+## Drag-and-drop's immediate single-slot commit (CardWorld.slot_drag_ended).
 func _on_slot_updated(slot_id: String, x: float, y: float) -> void:
 	var nodes: Array = _graph.get("nodes", [])
 	for n in nodes:
@@ -367,6 +400,26 @@ func _on_slot_updated(slot_id: String, x: float, y: float) -> void:
 			props["y"] = y
 			n["properties"] = props
 			break
+	await _save_graph()
+	_parse_layouts()
+	_apply_active_layout()
+
+
+## "Save Layout"'s batch commit for the numeric-field editing path — every
+## row's current x/y in one graph write, instead of the old one-save-per-row
+## button. Same per-node update as _on_slot_updated, just looped and saved
+## once at the end rather than once per slot.
+func _on_slots_saved(updates: Array) -> void:
+	var nodes: Array = _graph.get("nodes", [])
+	for u in updates:
+		var slot_id: String = u.get("slot_id", "")
+		for n in nodes:
+			if str(n.get("id", "")) == slot_id:
+				var props: Dictionary = n.get("properties", {})
+				props["x"] = u.get("x", 0.0)
+				props["y"] = u.get("y", 0.0)
+				n["properties"] = props
+				break
 	await _save_graph()
 	_parse_layouts()
 	_apply_active_layout()
