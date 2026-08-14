@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.7.0"
+const VERSION := "0.8.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -119,6 +119,8 @@ func _setup_controller() -> void:
 	_panel.acl_changed.connect(_on_acl_changed)
 	_panel.layout_selected.connect(_on_layout_selected)
 	_panel.layout_created.connect(_on_layout_created)
+	_panel.layout_deleted.connect(_on_layout_deleted)
+	_panel.layout_mod_mode_changed.connect(_world.set_layout_mod_mode)
 	_panel.slot_added.connect(_on_slot_added)
 	_panel.slot_updated.connect(_on_slot_updated)
 	_panel.slot_deleted.connect(_on_slot_deleted)
@@ -128,6 +130,7 @@ func _setup_controller() -> void:
 	_panel.exit_pressed.connect(_on_exit_pressed)
 	_world.card_tapped.connect(_on_controller_card_tapped)
 	_world.card_context_requested.connect(_on_card_context_requested)
+	_world.slot_drag_ended.connect(_on_slot_updated)
 
 	ApiClient.action_received.connect(_on_client_action_received)
 	ApiClient.client_joined.connect(_on_client_joined)
@@ -397,6 +400,48 @@ func _on_slot_deleted(slot_id: String) -> void:
 		ApiClient.send_ws({"type": "state", "payload": _state})
 		ApiClient.send_ws({"type": "acl", "payload": _acl})
 
+	_apply_active_layout()
+
+
+## Deleting a Layout removes it and everything under it (Slots, their
+## Vertical/Horizontal layers, all HAS_SLOT/HAS_LAYER edges) — same
+## cascade-removal shape as _on_slot_deleted, one level up. If this was the
+## active layout mid-session, auto-saves first (same trigger as switching
+## layouts — deleting the active one out from under a reading is
+## functionally a switch, just to nothing). Re-bootstraps a default layout
+## if this was the last one, so the app is never left with zero layouts.
+func _on_layout_deleted(layout_id: String) -> void:
+	if not _layouts.has(layout_id):
+		return
+	var is_active: bool = layout_id == _active_layout_id
+	if is_active:
+		await _auto_save_before_layout_switch()
+
+	var remove_ids: Array = [layout_id]
+	for slot_id in _slots_for_layout(layout_id).keys():
+		var info: Dictionary = _slots[slot_id]
+		remove_ids.append(slot_id)
+		remove_ids.append(info.get("vertical_id", ""))
+		remove_ids.append(info.get("horizontal_id", ""))
+
+	var nodes: Array = _graph.get("nodes", [])
+	_graph["nodes"] = nodes.filter(func(n): return not remove_ids.has(str(n.get("id", ""))))
+
+	var edges: Array = _graph.get("edges", [])
+	_graph["edges"] = edges.filter(func(e): return not (remove_ids.has(str(e.get("from", ""))) or remove_ids.has(str(e.get("to", "")))))
+
+	await _save_graph()
+	_parse_layouts()
+
+	if _layouts.is_empty():
+		_bootstrap_default_layout()
+		await _save_graph()
+		_parse_layouts()
+
+	if is_active:
+		_active_layout_id = _layouts.keys()[0] if not _layouts.is_empty() else ""
+		_reset_table()
+		_reset_deck_to_ready_state()
 	_apply_active_layout()
 
 

@@ -18,6 +18,8 @@ signal deal_loose_pressed()
 signal acl_changed(slot_id: String, layer: String, is_visible: bool, actions: Array)
 signal layout_selected(layout_id: String)
 signal layout_created(name: String)
+signal layout_deleted(layout_id: String)
+signal layout_mod_mode_changed(on: bool)
 signal slot_added(name: String, x: float, y: float)
 signal slot_updated(slot_id: String, x: float, y: float)
 signal slot_deleted(slot_id: String)
@@ -40,7 +42,11 @@ var _visible_cbs: Dictionary = {}   # "slot_id:layer" -> CheckBox
 var _flip_cbs: Dictionary = {}      # "slot_id:layer" -> CheckBox
 var _cards_form: VBoxContainer
 var _layout_menu: MenuButton
+var _layout_modify_btn: Button
+var _layout_new_row: HBoxContainer
 var _layout_new_name: LineEdit
+var _layout_mod_group: VBoxContainer
+var _layout_mod_mode: bool = false
 var _slot_rows_form: VBoxContainer
 var _slot_new_name: LineEdit
 var _slot_new_x: SpinBox
@@ -138,41 +144,59 @@ func _make_rollup(title: String, color: Color, form: Control) -> void:
 	)
 
 
+## Two tiers: a browse row (dropdown + Modify) always visible, and a
+## modification group (slot list, add-slot fields, Delete Layout) shown only
+## once Modify is pressed — the rollup starts on "what layout am I looking
+## at," not the editing furniture. Picking "+ New Layout" from the dropdown
+## doesn't create anything by itself; it reveals an inline name prompt,
+## and only submitting that prompt actually creates the layout (and enters
+## modification mode for it automatically).
 func _build_layout_section() -> void:
 	var form := VBoxContainer.new()
 
+	var browse_row := HBoxContainer.new()
 	_layout_menu = MenuButton.new()
 	_layout_menu.text = "No Layout"
+	_layout_menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_layout_menu.get_popup().id_pressed.connect(_on_layout_menu_id_pressed)
-	form.add_child(_layout_menu)
+	browse_row.add_child(_layout_menu)
+	_layout_modify_btn = Button.new()
+	_layout_modify_btn.text = "Modify"
+	_layout_modify_btn.pressed.connect(func() -> void: _set_layout_mod_mode(not _layout_mod_mode))
+	browse_row.add_child(_layout_modify_btn)
+	form.add_child(browse_row)
 
-	var new_row := HBoxContainer.new()
+	_layout_new_row = HBoxContainer.new()
+	_layout_new_row.visible = false
 	_layout_new_name = LineEdit.new()
 	_layout_new_name.placeholder_text = "New layout name"
 	_layout_new_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	new_row.add_child(_layout_new_name)
-	var new_layout_btn := Button.new()
-	new_layout_btn.text = "New Layout"
-	new_layout_btn.pressed.connect(func() -> void:
+	_layout_new_row.add_child(_layout_new_name)
+	var create_btn := Button.new()
+	create_btn.text = "Create"
+	create_btn.pressed.connect(func() -> void:
 		var n: String = _layout_new_name.text.strip_edges()
 		if n != "":
 			layout_created.emit(n)
 			_layout_new_name.text = ""
+			_layout_new_row.visible = false
+			_set_layout_mod_mode(true)  # "then set a name and then it would go into modify mode"
 	)
-	new_row.add_child(new_layout_btn)
-	form.add_child(new_row)
+	_layout_new_row.add_child(create_btn)
+	form.add_child(_layout_new_row)
 
-	form.add_child(HSeparator.new())
+	_layout_mod_group = VBoxContainer.new()
+	_layout_mod_group.visible = false
 
 	var slots_label := Label.new()
 	slots_label.text = "Slots"
 	slots_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
-	form.add_child(slots_label)
+	_layout_mod_group.add_child(slots_label)
 
 	_slot_rows_form = VBoxContainer.new()
-	form.add_child(_slot_rows_form)
+	_layout_mod_group.add_child(_slot_rows_form)
 
-	form.add_child(HSeparator.new())
+	_layout_mod_group.add_child(HSeparator.new())
 
 	var add_row := HBoxContainer.new()
 	_slot_new_name = LineEdit.new()
@@ -192,9 +216,28 @@ func _build_layout_section() -> void:
 			_slot_new_name.text = ""
 	)
 	add_row.add_child(add_slot_btn)
-	form.add_child(add_row)
+	_layout_mod_group.add_child(add_row)
+
+	_layout_mod_group.add_child(HSeparator.new())
+
+	var delete_layout_btn := Button.new()
+	delete_layout_btn.text = "Delete Layout"
+	delete_layout_btn.pressed.connect(_confirm_delete_layout)
+	_layout_mod_group.add_child(delete_layout_btn)
+
+	form.add_child(_layout_mod_group)
 
 	_make_rollup("Layout", _rollup_color(3), form)
+
+
+## CardWorld listens to this directly (see Main.gd's _setup_controller) to
+## show/hide the draggable slot markers only while actually editing a
+## layout — no drag input active at all outside modification mode.
+func _set_layout_mod_mode(on: bool) -> void:
+	_layout_mod_mode = on
+	_layout_mod_group.visible = on
+	_layout_modify_btn.text = "Done" if on else "Modify"
+	layout_mod_mode_changed.emit(on)
 
 
 ## Ported pattern (not code) from Paradotz's NodePanel.gd:_on_delete_pressed —
@@ -208,6 +251,25 @@ func _confirm_delete_slot(slot_id: String, slot_name: String) -> void:
 	add_child(dialog)
 	dialog.confirmed.connect(func() -> void:
 		slot_deleted.emit(slot_id)
+		dialog.queue_free()
+	)
+	dialog.canceled.connect(func() -> void: dialog.queue_free())
+	dialog.popup_centered()
+
+
+func _confirm_delete_layout() -> void:
+	if _active_layout_id == "" or not _layouts.has(_active_layout_id):
+		return
+	var layout_name: String = _layouts[_active_layout_id].get("name", _active_layout_id)
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "Delete Layout"
+	dialog.dialog_text = "Delete layout \"%s\"?\nAll of its slots, and any cards currently placed on them, will be lost.\nThis cannot be undone." % layout_name
+	dialog.ok_button_text = "Delete"
+	dialog.cancel_button_text = "Cancel"
+	add_child(dialog)
+	dialog.confirmed.connect(func() -> void:
+		layout_deleted.emit(_active_layout_id)
+		_set_layout_mod_mode(false)
 		dialog.queue_free()
 	)
 	dialog.canceled.connect(func() -> void: dialog.queue_free())
@@ -228,9 +290,23 @@ func _make_spin_box() -> SpinBox:
 	return sb
 
 
+const NEW_LAYOUT_SENTINEL := "__new_layout__"
+
+
 func _on_layout_menu_id_pressed(id: int) -> void:
 	var popup := _layout_menu.get_popup()
 	var layout_id: String = str(popup.get_item_metadata(popup.get_item_index(id)))
+	if layout_id == NEW_LAYOUT_SENTINEL:
+		_layout_new_row.visible = true
+		_layout_new_name.grab_focus()
+		return
+	_layout_new_row.visible = false
+	# Switching which layout you're looking at exits modification mode —
+	# mod mode is tied to a specific layout's slots, not a general-purpose
+	# toggle, so carrying it over onto a different selection would leave the
+	# Modify button's "Done" label pointing at the wrong layout.
+	if _layout_mod_mode:
+		_set_layout_mod_mode(false)
 	layout_selected.emit(layout_id)
 
 
@@ -245,6 +321,13 @@ func set_layouts(layouts: Dictionary, active_id: String) -> void:
 		popup.add_item(layouts[layout_id].get("name", layout_id), i)
 		popup.set_item_metadata(i, layout_id)
 		i += 1
+	popup.add_separator()
+	popup.add_item("+ New Layout", i)
+	# set_item_metadata takes a positional index, not the item's id — a
+	# separator is a real entry in the popup's item list, so it shifts the
+	# "+ New Layout" item's actual position past i by one. get_item_count()-1
+	# always points at whatever was just added, regardless of separators.
+	popup.set_item_metadata(popup.get_item_count() - 1, NEW_LAYOUT_SENTINEL)
 	_layout_menu.text = layouts.get(active_id, {}).get("name", "No Layout")
 
 

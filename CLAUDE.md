@@ -125,9 +125,13 @@ batch with zero eyes on them yet.
   in place, doesn't create a new graph per reading)
 
 ### What is not yet done (deliberately deferred, not forgotten)
-- Card dragging / freeform placement (cards and slots are both fixed to
-  numeric-field-set positions or the Deck section's controls; needs
-  hands-on testing to build safely — see Step 5 piece 2 below)
+- Card dragging / freeform placement (cards are still fixed to numeric-field-
+  set positions or the Deck section's controls — see Step 5 piece 2 below.
+  Slot dragging in the Layout editor's mod mode landed 2026-08-14, live at a
+  computer with the user testing in real time, so the risk that held card
+  dragging back doesn't apply the same way anymore — but it's a separate
+  interaction with its own drop-resolution logic, not just "reuse the slot
+  version," so still worth its own pass rather than assuming it's covered)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started
 - Celtic Cross / Ava's Celtic Cross layouts (buildable now via the Layout
   editor, just not pre-seeded)
@@ -272,14 +276,25 @@ importance — the hard spine is 1 → 2 → 3 → 5 → 7; Steps 4 and 6 are
 pluggable wherever convenient once their own prerequisites are met.
 
 1. ~~**Two-layer slot rendering**~~ — done 2026-08-11.
-2. ~~**Layout/Slot as real graph nodes**~~ — done 2026-08-11. Numeric x/y
-   fields for now, not drag (that's Step 5). `Data/layouts.json` retired.
-   Deletion now guarded by a `ConfirmationDialog` (ported from Paradotz's
-   `NodePanel.gd:_on_delete_pressed` pattern); creating a new layout clears
-   the table first. Follow-up noted, not yet done: hide the slot editor's
-   x/y fields behind a "Modify" button (same button Step 5's drag will need
-   anyway) instead of always-visible SpinBoxes — deliberately deferred to
-   land alongside drag rather than build twice.
+2. ~~**Layout/Slot as real graph nodes**~~ — done 2026-08-11, reworked
+   2026-08-14 per live feedback. `Data/layouts.json` retired. The panel now
+   starts on a plain dropdown + "Modify" button, not the slot-editing
+   furniture — picking "+ New Layout" reveals an inline name prompt rather
+   than creating anything immediately, and submitting it auto-enters
+   modification mode. Only in mod mode do the slot list, Add Slot fields,
+   and a confirm-gated "Delete Layout" button appear (cascades: removes the
+   Layout, every Slot under it, their Vertical/Horizontal layers, and all
+   touching edges — same shape as slot deletion, one level up; re-bootstraps
+   a default layout if that was the last one). Switching the dropdown
+   selection while in mod mode exits it, so "Done"/"Modify" never points at
+   the wrong layout. The old always-visible x/y SpinBoxes are now
+   supplemented by **real drag-and-drop**: in mod mode, CardWorld shows a
+   bordered placeholder per slot that can be click-dragged directly on the
+   table (press-then-track-via-`_input()`, since `gui_input` alone stops
+   firing the instant the cursor leaves the control mid-drag — same
+   limitation card-dragging will hit in Step 5 piece 2). Drops that would
+   overlap another slot (10px horizontal buffer, 30px above for the label)
+   snap back to the pre-drag position instead of clamping to a legal spot.
 3. ~~**Session as a formal entity**~~ — done 2026-08-12, all 5 pieces:
    `display_name` + `seed-personas.js`/`activate-personas.js` (six active,
    trait-seeded personas — see Grant repo); the client picker in the
