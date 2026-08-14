@@ -14,7 +14,9 @@ signal context_requested(slot_id: String, layer: String)
 const CARD_SIZE := Vector2(160, 280)
 
 var slot_id: String = ""
-var layer: String = "vertical"       # "vertical" (primary) or "horizontal" (crossing/modifier)
+var layer: String = "vertical"       # "vertical" (primary), "horizontal" (crossing/modifier), or
+                                      # "loose" (untethered — slot_id holds deck_card_id instead
+                                      # of a real slot, see CardWorld.set_loose())
 var deck_card_id: String = ""
 var card_name: String = ""
 var face_up: bool = false
@@ -69,9 +71,10 @@ func set_layer(value: String) -> void:
 
 
 ## Total rotation combines two independent facts: which layer this is
-## (vertical=0°, horizontal=90°, structural) and whether it's reversed
-## (+180°, instance-level) — see Meta/Reading-Model.md's structural-vs-
-## instance property split.
+## (vertical=0°, horizontal=90°, structural; loose cards aren't crossing
+## anything so they get no layer angle) and whether it's reversed (+180°,
+## instance-level) — see Meta/Reading-Model.md's structural-vs-instance
+## property split.
 func _update_rotation() -> void:
 	var layer_angle := (PI / 2.0) if layer == "horizontal" else 0.0
 	var reversed_angle := PI if orientation == "reversed" else 0.0

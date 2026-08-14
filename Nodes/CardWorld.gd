@@ -22,6 +22,8 @@ var _cards: Dictionary = {}          # "slot_id:layer" -> CardNode
 var _slot_geometry: Dictionary = {}  # slot_id -> {"name", "x", "y"} — set via set_slots()
 var _slot_labels: Dictionary = {}    # slot_id -> Label
 var _world: Control
+var _loose_nodes: Dictionary = {}    # deck_card_id -> CardNode, set via set_loose()
+var _modify_links: Array = []        # [[Vector2 from, Vector2 to], ...], world-local, for _draw()
 
 
 static func _key(slot_id: String, layer: String) -> String:
@@ -110,6 +112,80 @@ func apply_state(cards: Dictionary, acl: Dictionary = {}) -> void:
 		if not seen.has(key):
 			_cards[key].queue_free()
 			_cards.erase(key)
+
+
+## loose: {deck_card_id: {"name","face_up","orientation","x","y",
+## "modifies_target": deck_card_id|""}}. Untethered cards dealt via Deal
+## Loose — controller-only for now (no client ACL modeled yet, see
+## grant-api's _filter_state_for_client, which drops "loose" from what a
+## client ever receives). Always interactive: no ACL to gate against.
+func set_loose(loose: Dictionary) -> void:
+	var seen: Dictionary = {}
+	for card_id in loose.keys():
+		var info: Dictionary = loose[card_id]
+		seen[card_id] = true
+		var node: CardNode = _loose_nodes.get(card_id)
+		if node == null:
+			node = CardNode.new()
+			node.slot_id = card_id  # sentinel: loose id travels in slot_id, layer == "loose"
+			node.layer = "loose"
+			node.tapped.connect(_on_card_tapped)
+			node.context_requested.connect(_on_card_context_requested)
+			_world.add_child(node)
+			_loose_nodes[card_id] = node
+		node.deck_card_id = card_id
+		node.card_name = info.get("name", "")
+		node.position = Vector2(info.get("x", 0.0), info.get("y", 0.0))
+		node.set_face_up(info.get("face_up", false))
+		node.set_orientation(info.get("orientation", "upright"))
+		node.set_interactive(true)
+
+	for card_id in _loose_nodes.keys().duplicate():
+		if not seen.has(card_id):
+			_loose_nodes[card_id].queue_free()
+			_loose_nodes.erase(card_id)
+
+	_rebuild_modify_links(loose)
+	queue_redraw()
+
+
+## Any card, slotted or loose, keyed by deck_card_id — the modifier
+## mechanic's target isn't restricted to loose cards (Reading-Model.md:
+## "modify any other card already on the table").
+func _find_card_node(deck_card_id: String) -> CardNode:
+	if _loose_nodes.has(deck_card_id):
+		return _loose_nodes[deck_card_id]
+	for node in _cards.values():
+		if node.deck_card_id == deck_card_id:
+			return node
+	return null
+
+
+## Connecting-line endpoints for _draw(), recomputed from current node
+## positions each time loose state changes. Not re-derived when a slotted
+## target card is later repositioned by unrelated churn — acceptable
+## first-pass staleness, not a correctness issue (the link itself is still
+## correct at checkpoint time, only the drawn line could lag briefly).
+func _rebuild_modify_links(loose: Dictionary) -> void:
+	_modify_links.clear()
+	for card_id in loose.keys():
+		var target_id: String = loose[card_id].get("modifies_target", "")
+		if target_id == "":
+			continue
+		var from_node: CardNode = _loose_nodes.get(card_id)
+		var to_node: CardNode = _find_card_node(target_id)
+		if from_node == null or to_node == null:
+			continue
+		var center := CardNode.CARD_SIZE / 2.0
+		_modify_links.append([
+			_world.get_transform() * (from_node.position + center),
+			_world.get_transform() * (to_node.position + center),
+		])
+
+
+func _draw() -> void:
+	for link in _modify_links:
+		draw_line(link[0], link[1], Color(0.7, 0.55, 0.85, 0.8), 2.0)
 
 
 func _on_card_tapped(slot_id: String, layer: String) -> void:

@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.5.0"
+const VERSION := "0.6.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -26,7 +26,7 @@ var _panel: ControllerPanel
 var _overlay: ClientOverlay
 var _status_label: Label
 
-var _state: Dictionary = {"cards": {}}
+var _state: Dictionary = {"cards": {}, "loose": {}}
 var _acl: Dictionary = {}
 var _pending_client: Dictionary = {}   # last client_joined info, for the checkpoint
 var _last_acl: Dictionary = {}         # client mode only: most recent ACL received
@@ -114,6 +114,7 @@ func _setup_controller() -> void:
 	_panel.unshuffle_pressed.connect(_on_unshuffle_pressed)
 	_panel.deal_next_pressed.connect(_on_deal_next_pressed)
 	_panel.deal_to_slot_pressed.connect(_on_deal_to_slot_pressed)
+	_panel.deal_loose_pressed.connect(_on_deal_loose_pressed)
 	_panel.acl_changed.connect(_on_acl_changed)
 	_panel.layout_selected.connect(_on_layout_selected)
 	_panel.layout_created.connect(_on_layout_created)
@@ -236,9 +237,10 @@ func _apply_active_layout() -> void:
 ## (explicitly, so a new layout starts from a clean table ready for slots)
 ## and on switching to a different existing layout (same staleness problem).
 func _reset_table() -> void:
-	_state = {"cards": {}}
+	_state = {"cards": {}, "loose": {}}
 	_acl = {}
 	_world.apply_state(_state["cards"])
+	_world.set_loose(_state["loose"])
 	ApiClient.send_ws({"type": "state", "payload": _state})
 	ApiClient.send_ws({"type": "acl", "payload": _acl})
 
@@ -413,7 +415,8 @@ func _resync_graph() -> void:
 
 func _on_end_pressed() -> void:
 	var cards: Dictionary = _state.get("cards", {})
-	if not cards.is_empty():
+	var loose: Dictionary = _state.get("loose", {})
+	if not cards.is_empty() or not loose.is_empty():
 		_send_checkpoint(true)
 		# No ack on the WS "save" message — give the server a moment to
 		# finish its own read-modify-write before resyncing, or we'd just
@@ -421,7 +424,7 @@ func _on_end_pressed() -> void:
 		# but the controller isn't going to edit a Slot in the same instant.
 		await get_tree().create_timer(0.5).timeout
 		await _resync_graph()
-	_state = {"cards": {}}
+	_state = {"cards": {}, "loose": {}}
 	_acl = {}
 	_pending_client = {}
 	_graph_session_node_id = ""
@@ -433,6 +436,7 @@ func _on_end_pressed() -> void:
 	_panel.set_in_session(false)
 	_panel.set_status("No active reading")
 	_world.apply_state(_state["cards"])
+	_world.set_loose(_state["loose"])
 
 
 ## Mid-session save — "record it and start over in the same session":
@@ -440,17 +444,19 @@ func _on_end_pressed() -> void:
 ## the table clears while the reading stays open. See Reading-Model.md.
 func _on_record_pressed() -> void:
 	var cards: Dictionary = _state.get("cards", {})
-	if cards.is_empty():
+	var loose: Dictionary = _state.get("loose", {})
+	if cards.is_empty() and loose.is_empty():
 		_panel.set_status("Nothing to record")
 		return
 	_send_checkpoint(false)
 	await get_tree().create_timer(0.5).timeout
 	await _resync_graph()
-	_state = {"cards": {}}
+	_state = {"cards": {}, "loose": {}}
 	_acl = {}
 	ApiClient.send_ws({"type": "state", "payload": _state})
 	ApiClient.send_ws({"type": "acl", "payload": _acl})
 	_world.apply_state(_state["cards"])
+	_world.set_loose(_state["loose"])
 	var client_display: String = _pending_client.get("display_name", "")
 	var client_username: String = _pending_client.get("username", "")
 	_panel.set_status("Scenario recorded — %s" % (client_display if client_display else client_username))
@@ -544,6 +550,96 @@ func _on_deal_to_slot_pressed(slot_id: String, layer: String) -> void:
 	_deal_into(slot_id, layer)
 
 
+## Cascades loose cards from a fixed tray origin so multiple dealt-loose
+## cards stay visually distinguishable without needing drag to spread them
+## out (dragging is deliberately not built yet — see _build_deck_section's
+## doc comment). Wraps into a new row after a handful so a long reading
+## doesn't run loose cards off the right edge of the table.
+const LOOSE_TRAY_ORIGIN := Vector2(120.0, 40.0)
+const LOOSE_TRAY_STEP := Vector2(40.0, 0.0)
+const LOOSE_TRAY_ROW_STEP := Vector2(0.0, 40.0)
+const LOOSE_TRAY_PER_ROW := 8
+
+
+func _on_deal_loose_pressed() -> void:
+	if _deck_order.is_empty():
+		_panel.set_status("Deck is empty")
+		return
+	var card_id: String = _deck_order.pop_front()
+	var loose: Dictionary = _state.get("loose", {})
+	var i: int = loose.size()
+	var pos: Vector2 = LOOSE_TRAY_ORIGIN + LOOSE_TRAY_STEP * (i % LOOSE_TRAY_PER_ROW) + LOOSE_TRAY_ROW_STEP * (i / LOOSE_TRAY_PER_ROW)
+	var info: Dictionary = _new_card_layer(card_id)
+	info["x"] = pos.x
+	info["y"] = pos.y
+	info["modifies_target"] = ""
+	loose[card_id] = info
+	_state["loose"] = loose
+	_world.set_loose(loose)
+	ApiClient.send_ws({"type": "state", "payload": _state})
+
+
+func _flip_loose(card_id: String) -> void:
+	var loose: Dictionary = _state.get("loose", {})
+	var info: Dictionary = loose.get(card_id, {})
+	if info.is_empty():
+		return
+	info["face_up"] = not info.get("face_up", false)
+	_world.set_loose(loose)
+	ApiClient.send_ws({"type": "state", "payload": _state})
+
+
+func _invert_loose(card_id: String) -> void:
+	var loose: Dictionary = _state.get("loose", {})
+	var info: Dictionary = loose.get(card_id, {})
+	if info.is_empty():
+		return
+	info["orientation"] = "reversed" if info.get("orientation", "upright") == "upright" else "upright"
+	_world.set_loose(loose)
+	ApiClient.send_ws({"type": "state", "payload": _state})
+
+
+## Reading-Model.md's path 1 for the modifier mechanic: "right-click menu —
+## controller right-clicks the loose card -> 'Modify Card' -> picks a
+## target -> edge created. Works regardless of position." target_id == ""
+## clears an existing link (the context menu's "Clear Modifier" item).
+func _set_modifies_target(card_id: String, target_id: String) -> void:
+	var loose: Dictionary = _state.get("loose", {})
+	var info: Dictionary = loose.get(card_id, {})
+	if info.is_empty():
+		return
+	info["modifies_target"] = target_id
+	_world.set_loose(loose)
+	ApiClient.send_ws({"type": "state", "payload": _state})
+
+
+## Returns every card currently on the table — {card_id: display_name} — as
+## candidate modify targets. Excludes exclude_id (a loose card can't modify
+## itself) and any loose card that currently modifies exclude_id (no
+## two-cycles — Reading-Model.md doesn't describe chained/circular
+## modifiers, and allowing one would make the connecting-line drawing and
+## eventual query answers ambiguous for no real benefit).
+func _modify_targets(exclude_id: String) -> Dictionary:
+	var targets: Dictionary = {}
+	var cards: Dictionary = _state.get("cards", {})
+	for slot_id in cards.keys():
+		var slot: Dictionary = cards[slot_id]
+		for layer in ["vertical", "horizontal"]:
+			var info = slot.get(layer)
+			if info != null:
+				var slot_name: String = _slots.get(slot_id, {}).get("name", slot_id)
+				targets[info.get("deck_card_id", "")] = "%s (%s — %s)" % [info.get("name", ""), slot_name, ControllerPanel.LAYER_LABELS.get(layer, layer)]
+	var loose: Dictionary = _state.get("loose", {})
+	for card_id in loose.keys():
+		if card_id == exclude_id:
+			continue
+		var info: Dictionary = loose[card_id]
+		if info.get("modifies_target", "") == exclude_id:
+			continue
+		targets[card_id] = "%s (loose)" % info.get("name", "")
+	return targets
+
+
 ## Returns every currently-tabled card to the pool before clearing — Reset is
 ## the only action that grows _deck_order back, so testing a layout
 ## repeatedly doesn't permanently deplete the deck.
@@ -555,6 +651,9 @@ func _on_reset_pressed() -> void:
 			var info = slot.get(layer)
 			if info != null:
 				_deck_order.append(info.get("deck_card_id", ""))
+	var loose: Dictionary = _state.get("loose", {})
+	for card_id in loose.keys():
+		_deck_order.append(card_id)
 	_reset_table()
 
 
@@ -581,7 +680,10 @@ func _new_card_layer(card_id: String) -> Dictionary:
 
 
 func _on_controller_card_tapped(slot_id: String, layer: String) -> void:
-	_flip_layer(slot_id, layer)
+	if layer == "loose":
+		_flip_loose(slot_id)  # loose id travels in slot_id — see CardWorld.set_loose()
+	else:
+		_flip_layer(slot_id, layer)
 
 
 func _flip_layer(slot_id: String, layer: String) -> void:
@@ -623,7 +725,10 @@ func _on_client_action_received(card_id: String, layer: String, action: String, 
 # — a hand-built overlay + PanelContainer + flat Buttons, not a native PopupMenu.
 
 func _on_card_context_requested(slot_id: String, layer: String) -> void:
-	_show_card_context_menu(slot_id, layer)
+	if layer == "loose":
+		_show_loose_context_menu(slot_id)  # loose id travels in slot_id — see CardWorld.set_loose()
+	else:
+		_show_card_context_menu(slot_id, layer)
 
 
 func _hide_context_menu() -> void:
@@ -632,7 +737,9 @@ func _hide_context_menu() -> void:
 	_context_menu = null
 
 
-func _show_card_context_menu(slot_id: String, layer: String) -> void:
+## Shared overlay+panel scaffold (click-anywhere-else-to-dismiss) for both
+## the card context menu and the modify-target picker it can open.
+func _begin_context_menu() -> VBoxContainer:
 	_hide_context_menu()
 
 	var overlay := Control.new()
@@ -660,6 +767,11 @@ func _show_card_context_menu(slot_id: String, layer: String) -> void:
 	var vbox := VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 2)
 	menu.add_child(vbox)
+	return vbox
+
+
+func _show_card_context_menu(slot_id: String, layer: String) -> void:
+	var vbox := _begin_context_menu()
 
 	var label := Label.new()
 	var slot_name: String = _slots.get(slot_id, {}).get("name", slot_id)
@@ -674,8 +786,55 @@ func _show_card_context_menu(slot_id: String, layer: String) -> void:
 	_add_ctx_button(vbox, "Hide" if is_visible else "Show", func() -> void: _on_ctx_show_hide(slot_id, layer))
 	_add_ctx_button(vbox, "Turn", func() -> void: _flip_layer(slot_id, layer))
 	_add_ctx_button(vbox, "Invert", func() -> void: _invert_layer(slot_id, layer))
-	# "Modify Card" (loose cards only) arrives with the modifier mechanic in
-	# Step 5 — no loose cards exist yet to trigger it.
+
+
+## Reading-Model.md's path 1 for the modifier mechanic — loose cards only.
+func _show_loose_context_menu(card_id: String) -> void:
+	var vbox := _begin_context_menu()
+
+	var loose: Dictionary = _state.get("loose", {})
+	var info: Dictionary = loose.get(card_id, {})
+
+	var label := Label.new()
+	label.text = "%s (loose)" % info.get("name", card_id)
+	label.add_theme_font_size_override("font_size", 14)
+	label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
+	label.custom_minimum_size = Vector2(180.0, 0.0)
+	vbox.add_child(label)
+	vbox.add_child(HSeparator.new())
+
+	_add_ctx_button(vbox, "Turn", func() -> void: _flip_loose(card_id))
+	_add_ctx_button(vbox, "Invert", func() -> void: _invert_loose(card_id))
+	_add_ctx_submenu_button(vbox, "Modify Card", func() -> void: _show_modify_target_picker(card_id))
+	if info.get("modifies_target", "") != "":
+		_add_ctx_button(vbox, "Clear Modifier", func() -> void: _set_modifies_target(card_id, ""))
+
+
+## Second-level menu: pick which on-table card this loose card modifies.
+## Uses _add_ctx_submenu_button to open (doesn't auto-close the loose card's
+## own menu underneath it), but its own entries use the normal auto-closing
+## _add_ctx_button since picking a target is a terminal action.
+func _show_modify_target_picker(card_id: String) -> void:
+	var vbox := _begin_context_menu()
+
+	var label := Label.new()
+	label.text = "Modify which card?"
+	label.add_theme_font_size_override("font_size", 14)
+	label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
+	label.custom_minimum_size = Vector2(200.0, 0.0)
+	vbox.add_child(label)
+	vbox.add_child(HSeparator.new())
+
+	var targets: Dictionary = _modify_targets(card_id)
+	if targets.is_empty():
+		var empty_label := Label.new()
+		empty_label.text = "(nothing else on the table)"
+		empty_label.add_theme_font_size_override("font_size", 13)
+		empty_label.add_theme_color_override("font_color", Color(0.45, 0.45, 0.45))
+		vbox.add_child(empty_label)
+	else:
+		for target_id in targets.keys():
+			_add_ctx_button(vbox, targets[target_id], func() -> void: _set_modifies_target(card_id, target_id))
 
 
 func _add_ctx_button(vbox: VBoxContainer, text: String, cb: Callable) -> void:
@@ -690,6 +849,22 @@ func _add_ctx_button(vbox: VBoxContainer, text: String, cb: Callable) -> void:
 		cb.call()
 		_hide_context_menu()
 	)
+	vbox.add_child(btn)
+
+
+## Same visual as _add_ctx_button but doesn't auto-close afterward — for an
+## item whose callback opens a follow-up menu (_begin_context_menu already
+## replaces _context_menu with the new one; auto-closing here would
+## immediately tear down that new menu instead of the one it replaced).
+func _add_ctx_submenu_button(vbox: VBoxContainer, text: String, cb: Callable) -> void:
+	var btn := Button.new()
+	btn.text = text
+	btn.flat = true
+	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.custom_minimum_size = Vector2(160.0, 40.0)
+	btn.add_theme_color_override("font_color", Color(0.88, 0.88, 0.88))
+	btn.add_theme_font_size_override("font_size", 14)
+	btn.pressed.connect(cb)
 	vbox.add_child(btn)
 
 
@@ -726,7 +901,27 @@ func _send_checkpoint(close_session: bool) -> void:
 				"slot": slot_id,
 				"layer": layer,
 				"orientation": info.get("orientation", "upright"),
+				"placement": "slotted",
 			})
+	# Loose placements (Reading-Model.md: "Card --PLACED--> Scenario directly,
+	# skipping Layer entirely... Loose-and-never-attached is a legitimate,
+	# permanent end state") and any MODIFIES links go alongside, both keyed
+	# by deck_card_id since it's already unique per reading (78-card catalog,
+	# no duplicates).
+	var modifies := []
+	var loose: Dictionary = _state.get("loose", {})
+	for card_id in loose.keys():
+		var info: Dictionary = loose[card_id]
+		placements.append({
+			"card_id": card_id,
+			"slot": null,
+			"layer": "",
+			"orientation": info.get("orientation", "upright"),
+			"placement": "loose",
+		})
+		var target_id: String = info.get("modifies_target", "")
+		if target_id != "":
+			modifies.append({"card_id": card_id, "target_card_id": target_id})
 	ApiClient.send_ws({
 		"type": "save",
 		"payload": {
@@ -737,6 +932,7 @@ func _send_checkpoint(close_session: bool) -> void:
 				"metrics": {},
 			},
 			"placements": placements,
+			"modifies": modifies,
 			"close_session": close_session,
 		},
 	})

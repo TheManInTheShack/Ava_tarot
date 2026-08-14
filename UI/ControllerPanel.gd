@@ -14,6 +14,7 @@ signal reshuffle_pressed()
 signal unshuffle_pressed()
 signal deal_next_pressed()
 signal deal_to_slot_pressed(slot_id: String, layer: String)
+signal deal_loose_pressed()
 signal acl_changed(slot_id: String, layer: String, is_visible: bool, actions: Array)
 signal layout_selected(layout_id: String)
 signal layout_created(name: String)
@@ -364,9 +365,11 @@ func get_selected_client() -> Dictionary:
 
 
 ## State-independent (per Reading-Model.md, works in or out of a session) —
-## Reset/Reshuffle/Unshuffle/Deal Next/Deal to Slot. Deal Loose isn't here
-## yet: it feeds directly into the drag-drop resolution logic that arrives
-## with Step 5, so there's nowhere useful to put a loose card until then.
+## Reset/Reshuffle/Unshuffle/Deal Next/Deal to Slot/Deal Loose. A loose
+## card's only way to attach to something today is the right-click "Modify
+## Card" path (Reading-Model.md's path 1) — drag-and-drop (path 2, Step 5's
+## other half) needs real mouse-drag input handling, deliberately held back
+## until it can be tested hands-on rather than shipped blind.
 func _build_deck_section() -> void:
 	var form := VBoxContainer.new()
 
@@ -411,6 +414,11 @@ func _build_deck_section() -> void:
 	)
 	deal_slot_row.add_child(deal_to_slot_btn)
 	form.add_child(deal_slot_row)
+
+	var deal_loose_btn := Button.new()
+	deal_loose_btn.text = "Deal Loose"
+	deal_loose_btn.pressed.connect(func() -> void: deal_loose_pressed.emit())
+	form.add_child(deal_loose_btn)
 
 	_make_rollup("Deck", _rollup_color(1), form)
 
