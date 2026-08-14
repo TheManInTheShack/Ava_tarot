@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.9.0"
+const VERSION := "0.10.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -153,6 +153,7 @@ func _setup_controller() -> void:
 	_panel.slot_deleted.connect(_on_slot_deleted)
 	_panel.trait_created.connect(_on_trait_created)
 	_panel.trait_deleted.connect(_on_trait_deleted)
+	_panel.trait_modified.connect(_on_trait_modified)
 	_panel.trait_toggled.connect(_on_trait_toggled)
 	_panel.client_focus_changed.connect(_refresh_traits_panel)
 	_panel.exit_pressed.connect(_on_exit_pressed)
@@ -625,7 +626,29 @@ func _parse_traits() -> void:
 	_traits.clear()
 	for n in _graph.get("nodes", []):
 		if n.get("type", "") == "Trait":
-			_traits[str(n["id"])] = n.get("name", "")
+			_traits[str(n["id"])] = {
+				"name": n.get("name", ""),
+				"note": n.get("properties", {}).get("note", ""),
+			}
+
+
+## Registers Trait.note as "text_long" (Paradotz's long-text property type)
+## in the graph's own type_schemas, with show_in_hover so it surfaces in
+## Paradotz's node tooltip once populated — verified directly against
+## Paradotz's GraphPanel.gd/NodePanel.gd/Editor.gd rather than guessed at.
+## Idempotent: a no-op once the entry exists (checked live — tarot-deck's
+## type_schemas has no Trait entry yet before this first runs).
+func _ensure_trait_note_schema() -> void:
+	var schemas: Dictionary = _graph.get("type_schemas", {})
+	var trait_schema: Dictionary = schemas.get("Trait", {})
+	var props: Array = trait_schema.get("properties", [])
+	for p in props:
+		if p.get("key", "") == "note":
+			return
+	props.append({"key": "note", "type": "text_long", "show_in_hover": true})
+	trait_schema["properties"] = props
+	schemas["Trait"] = trait_schema
+	_graph["type_schemas"] = schemas
 
 
 func _client_trait_ids_for(client_id: String) -> Dictionary:
@@ -673,9 +696,30 @@ func _on_trait_created(name: String) -> void:
 	var n: String = name.strip_edges()
 	if n == "":
 		return
+	_ensure_trait_note_schema()
 	var nodes: Array = _graph.get("nodes", [])
-	nodes.append({"id": _next_id(), "type": "Trait", "name": n, "properties": {}})
+	nodes.append({"id": _next_id(), "type": "Trait", "name": n, "properties": {"note": ""}})
 	_graph["nodes"] = nodes
+	await _save_graph()
+	_refresh_traits_panel()
+
+
+## Respelling (name) and Paradotz's "long text" note field together — see
+## _ensure_trait_note_schema(). Only ever called after ControllerPanel's own
+## Modify editor — see _open_trait_modify_editor there.
+func _on_trait_modified(trait_id: String, name: String, note: String) -> void:
+	var n: String = name.strip_edges()
+	if n == "":
+		return
+	_ensure_trait_note_schema()
+	var nodes: Array = _graph.get("nodes", [])
+	for node in nodes:
+		if str(node.get("id", "")) == trait_id:
+			node["name"] = n
+			var props: Dictionary = node.get("properties", {})
+			props["note"] = note
+			node["properties"] = props
+			break
 	await _save_graph()
 	_refresh_traits_panel()
 

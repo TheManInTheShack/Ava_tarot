@@ -124,6 +124,21 @@ piece of new drawing code from the earlier batch nobody's looked at yet.
   what the focused client doesn't already have) + Add button to attach
   more. No more scrolling through all 80 to find the handful someone
   actually has.
+- **Modify Trait + a `note` property** (2026-08-14, same day follow-up):
+  the vocabulary picker now has a Modify button alongside Delete Trait,
+  opening an inline editor (name field + a multi-line note field) for
+  respelling and free-text notes. `note` is registered as Paradotz's
+  `"text_long"` property type directly in the graph's own `type_schemas`
+  (`_ensure_trait_note_schema()` in Main.gd — a graph-level dict, not a
+  separate file, verified against Paradotz's `GraphPanel.gd`/`NodePanel.gd`/
+  `Editor.gd` rather than guessed), with `show_in_hover: true` so a
+  non-empty note surfaces in Paradotz's own node tooltip and renders as a
+  real multi-line field there, not a generic single-line freeform property.
+  Idempotent — only actually writes the schema entry the first time.
+- Rollups now start collapsed, in the order Session / Deck / Client Access /
+  Layout / Traits (was Layout-first, always-expanded).
+- Removed the per-item separator lines between slot rows and Client Access
+  rows added in the layout-editor rework — they weren't earning their keep.
 - Tap-to-flip: controller can flip any of its own cards directly; client can
   flip only a card the controller has currently granted the `flip` action on
 - Live ACL: per-layer (not per-slot) visible/actions toggles in the Client

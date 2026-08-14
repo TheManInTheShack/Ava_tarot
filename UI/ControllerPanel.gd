@@ -25,6 +25,7 @@ signal slots_saved(updates: Array)  # [{"slot_id","x","y"}, ...] — Save Layout
 signal slot_deleted(slot_id: String)
 signal trait_created(name: String)
 signal trait_deleted(trait_id: String)
+signal trait_modified(trait_id: String, name: String, note: String)
 signal trait_toggled(trait_id: String, has_trait: bool)  # add (true) / remove (false) for the focused client
 signal client_focus_changed()
 signal exit_pressed()
@@ -70,7 +71,7 @@ var _slots_cache: Dictionary = {}   # most recent set_slots() call, for menu lab
 var _deck_slot_menu: MenuButton
 var _deck_slot_options: Array = []  # [{"slot_id","layer"}], parallel to popup item ids
 var _deck_slot_selected_index: int = -1
-var _traits_cache: Dictionary = {}   # trait_id -> name, most recent set_traits() call
+var _traits_cache: Dictionary = {}   # trait_id -> {"name","note"}, most recent set_traits() call
 var _assigned_traits_form: VBoxContainer
 var _traits_focus_label: Label
 var _traits_picker_row: HBoxContainer  # client picker, visible only out-of-session
@@ -78,9 +79,12 @@ var _traits_client_menu: MenuButton
 var _traits_clients: Array = []
 var _traits_selected_client_index: int = -1
 var _trait_new_name: LineEdit
-var _trait_delete_menu: MenuButton
-var _trait_delete_options: Array = []  # trait_ids, parallel to popup item ids
-var _trait_delete_selected_index: int = -1
+var _trait_vocab_menu: MenuButton      # shared selection for Modify + Delete Trait
+var _trait_vocab_options: Array = []   # trait_ids, parallel to popup item ids
+var _trait_vocab_selected_index: int = -1
+var _trait_modify_group: VBoxContainer
+var _trait_modify_name: LineEdit
+var _trait_modify_note: TextEdit
 var _trait_add_menu: MenuButton
 var _trait_add_options: Array = []     # trait_ids not yet on the focused client
 var _trait_add_selected_index: int = -1
@@ -105,11 +109,11 @@ func _ready() -> void:
 	top_row.add_child(exit_btn)
 	add_child(top_row)
 
-	_build_layout_section()
 	_build_session_section()
 	_build_deck_section()
-	_build_traits_section()
 	_build_cards_section()
+	_build_layout_section()
+	_build_traits_section()
 
 
 func set_version(v: String) -> void:
@@ -151,11 +155,11 @@ func _wrap_rollup_panel(form: Control, color: Color, start_visible: bool = true)
 
 func _make_rollup(title: String, color: Color, form: Control) -> void:
 	var btn := Button.new()
-	btn.text = title + "  [-]"
+	btn.text = title + "  [+]"
 	_style_rollup_header(btn, color)
 	add_child(btn)
 
-	var wrapped := _wrap_rollup_panel(form, color, true)
+	var wrapped := _wrap_rollup_panel(form, color, false)
 	add_child(wrapped)
 
 	btn.pressed.connect(func() -> void:
@@ -679,17 +683,76 @@ func _build_traits_section() -> void:
 	add_trait_row.add_child(add_trait_btn)
 	form.add_child(add_trait_row)
 
-	var delete_trait_row := HBoxContainer.new()
-	_trait_delete_menu = MenuButton.new()
-	_trait_delete_menu.text = "No traits"
-	_trait_delete_menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_trait_delete_menu.get_popup().id_pressed.connect(_on_trait_delete_menu_id_pressed)
-	delete_trait_row.add_child(_trait_delete_menu)
+	# One shared picker for both Modify and Delete Trait — own row, since a
+	# dropdown + two buttons together hits the same width squeeze the Add
+	# Slot row already taught us about (see set_slots()'s doc comment).
+	_trait_vocab_menu = MenuButton.new()
+	_trait_vocab_menu.text = "No traits"
+	_trait_vocab_menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_trait_vocab_menu.get_popup().id_pressed.connect(_on_trait_vocab_menu_id_pressed)
+	form.add_child(_trait_vocab_menu)
+
+	var vocab_actions_row := HBoxContainer.new()
+	var modify_trait_btn := Button.new()
+	modify_trait_btn.text = "Modify"
+	modify_trait_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	modify_trait_btn.pressed.connect(_open_trait_modify_editor)
+	vocab_actions_row.add_child(modify_trait_btn)
 	var delete_trait_btn := Button.new()
 	delete_trait_btn.text = "Delete Trait"
+	delete_trait_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	delete_trait_btn.pressed.connect(_confirm_delete_trait)
-	delete_trait_row.add_child(delete_trait_btn)
-	form.add_child(delete_trait_row)
+	vocab_actions_row.add_child(delete_trait_btn)
+	form.add_child(vocab_actions_row)
+
+	# Inline editor, hidden until Modify is pressed — same reveal pattern as
+	# Layout's "+ New Layout" name prompt. note is Paradotz's "long text"
+	# property type (text_long, show_in_hover) registered on the Trait type
+	# schema by Main.gd — verified against Paradotz's own GraphPanel.gd/
+	# NodePanel.gd/Editor.gd rather than guessed, so it actually renders as
+	# multi-line there and surfaces in its node tooltip once non-empty.
+	_trait_modify_group = VBoxContainer.new()
+	_trait_modify_group.visible = false
+
+	var modify_name_label := Label.new()
+	modify_name_label.text = "Name"
+	modify_name_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	_trait_modify_group.add_child(modify_name_label)
+	_trait_modify_name = LineEdit.new()
+	_trait_modify_group.add_child(_trait_modify_name)
+
+	var modify_note_label := Label.new()
+	modify_note_label.text = "Note"
+	modify_note_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	_trait_modify_group.add_child(modify_note_label)
+	_trait_modify_note = TextEdit.new()
+	_trait_modify_note.custom_minimum_size = Vector2(0, 80)
+	_trait_modify_note.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	_trait_modify_note.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_trait_modify_group.add_child(_trait_modify_note)
+
+	var modify_save_row := HBoxContainer.new()
+	var modify_save_btn := Button.new()
+	modify_save_btn.text = "Save"
+	modify_save_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	modify_save_btn.pressed.connect(func() -> void:
+		if _trait_vocab_selected_index < 0 or _trait_vocab_selected_index >= _trait_vocab_options.size():
+			return
+		var n: String = _trait_modify_name.text.strip_edges()
+		if n == "":
+			return
+		trait_modified.emit(_trait_vocab_options[_trait_vocab_selected_index], n, _trait_modify_note.text)
+		_trait_modify_group.visible = false
+	)
+	modify_save_row.add_child(modify_save_btn)
+	var modify_cancel_btn := Button.new()
+	modify_cancel_btn.text = "Cancel"
+	modify_cancel_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	modify_cancel_btn.pressed.connect(func() -> void: _trait_modify_group.visible = false)
+	modify_save_row.add_child(modify_cancel_btn)
+	_trait_modify_group.add_child(modify_save_row)
+
+	form.add_child(_trait_modify_group)
 
 	form.add_child(HSeparator.new())
 
@@ -740,19 +803,33 @@ func _build_traits_section() -> void:
 	_make_rollup("Traits", _rollup_color(4), form)
 
 
-func _on_trait_delete_menu_id_pressed(id: int) -> void:
-	_trait_delete_selected_index = id
-	_trait_delete_menu.text = _traits_cache.get(_trait_delete_options[id], "")
+## Switching which trait is selected closes the Modify editor rather than
+## leaving it showing stale content for whatever was previously picked —
+## same "switching selection exits edit mode" rule Layout's mod mode uses.
+func _on_trait_vocab_menu_id_pressed(id: int) -> void:
+	_trait_vocab_selected_index = id
+	_trait_vocab_menu.text = _traits_cache.get(_trait_vocab_options[id], {}).get("name", "")
+	_trait_modify_group.visible = false
+
+
+func _open_trait_modify_editor() -> void:
+	if _trait_vocab_selected_index < 0 or _trait_vocab_selected_index >= _trait_vocab_options.size():
+		return
+	var trait_id: String = _trait_vocab_options[_trait_vocab_selected_index]
+	var info: Dictionary = _traits_cache.get(trait_id, {})
+	_trait_modify_name.text = info.get("name", "")
+	_trait_modify_note.text = info.get("note", "")
+	_trait_modify_group.visible = true
 
 
 ## Ported pattern (not code) from Paradotz's NodePanel.gd:_on_delete_pressed
 ## — same ConfirmationDialog shape as slot/layout deletion elsewhere in this
 ## panel. Warns explicitly that this is vocabulary-wide, not per-client.
 func _confirm_delete_trait() -> void:
-	if _trait_delete_selected_index < 0 or _trait_delete_selected_index >= _trait_delete_options.size():
+	if _trait_vocab_selected_index < 0 or _trait_vocab_selected_index >= _trait_vocab_options.size():
 		return
-	var trait_id: String = _trait_delete_options[_trait_delete_selected_index]
-	var trait_name: String = _traits_cache.get(trait_id, trait_id)
+	var trait_id: String = _trait_vocab_options[_trait_vocab_selected_index]
+	var trait_name: String = _traits_cache.get(trait_id, {}).get("name", trait_id)
 	var dialog := ConfirmationDialog.new()
 	dialog.title = "Delete Trait"
 	dialog.dialog_text = "Delete trait \"%s\" from the vocabulary?\nRemoves it from every client who currently has it.\nThis cannot be undone." % trait_name
@@ -798,38 +875,42 @@ func get_traits_selected_client() -> Dictionary:
 
 func _on_trait_add_menu_id_pressed(id: int) -> void:
 	_trait_add_selected_index = id
-	_trait_add_menu.text = _traits_cache.get(_trait_add_options[id], "")
+	_trait_add_menu.text = _traits_cache.get(_trait_add_options[id], {}).get("name", "")
 
 
-## traits: {trait_id: name} — the full vocabulary, for both the Delete
-## Trait picker (vocabulary-wide) and the Add-to-client picker (filtered to
-## what the focused client doesn't already have). client_trait_ids:
-## {trait_id: true} — which of those the focused client currently has;
-## rendered as a short list with a Remove button each, not a checkbox
-## against the whole vocabulary. focus_label: "" when no client is focused.
+## traits: {trait_id: {"name","note"}} — the full vocabulary, for both the
+## vocabulary picker (Modify/Delete Trait) and the Add-to-client picker
+## (filtered to what the focused client doesn't already have).
+## client_trait_ids: {trait_id: true} — which of those the focused client
+## currently has; rendered as a short list with a Remove button each, not a
+## checkbox against the whole vocabulary. focus_label: "" when no client is
+## focused.
 func set_traits(traits: Dictionary, client_trait_ids: Dictionary, focus_label: String) -> void:
 	_traits_cache = traits
 	_traits_focus_label.text = ("Traits for %s" % focus_label) if focus_label != "" else "No client selected"
 
-	_trait_delete_options.clear()
-	var delete_popup := _trait_delete_menu.get_popup()
-	delete_popup.clear()
+	_trait_vocab_options.clear()
+	var vocab_popup := _trait_vocab_menu.get_popup()
+	vocab_popup.clear()
 	for trait_id in traits.keys():
-		delete_popup.add_item(traits[trait_id], _trait_delete_options.size())
-		_trait_delete_options.append(trait_id)
-	if _trait_delete_options.is_empty():
-		_trait_delete_menu.text = "No traits"
-		_trait_delete_selected_index = -1
+		vocab_popup.add_item(traits[trait_id].get("name", trait_id), _trait_vocab_options.size())
+		_trait_vocab_options.append(trait_id)
+	if _trait_vocab_options.is_empty():
+		_trait_vocab_menu.text = "No traits"
+		_trait_vocab_selected_index = -1
 	else:
-		_trait_delete_selected_index = 0
-		_trait_delete_menu.text = traits[_trait_delete_options[0]]
+		_trait_vocab_selected_index = 0
+		_trait_vocab_menu.text = traits[_trait_vocab_options[0]].get("name", "")
+	# The underlying data may have just changed (e.g. this is the refresh
+	# right after a Save) — don't leave stale content showing.
+	_trait_modify_group.visible = false
 
 	for c in _assigned_traits_form.get_children():
 		c.queue_free()
 	for trait_id in client_trait_ids.keys():
 		var row := HBoxContainer.new()
 		var label := Label.new()
-		label.text = traits.get(trait_id, trait_id)
+		label.text = traits.get(trait_id, {}).get("name", trait_id)
 		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(label)
 		var remove_btn := Button.new()
@@ -844,14 +925,14 @@ func set_traits(traits: Dictionary, client_trait_ids: Dictionary, focus_label: S
 	for trait_id in traits.keys():
 		if client_trait_ids.has(trait_id):
 			continue
-		add_popup.add_item(traits[trait_id], _trait_add_options.size())
+		add_popup.add_item(traits[trait_id].get("name", trait_id), _trait_add_options.size())
 		_trait_add_options.append(trait_id)
 	if _trait_add_options.is_empty():
 		_trait_add_menu.text = "No traits to add"
 		_trait_add_selected_index = -1
 	else:
 		_trait_add_selected_index = 0
-		_trait_add_menu.text = traits[_trait_add_options[0]]
+		_trait_add_menu.text = traits[_trait_add_options[0]].get("name", "")
 
 
 const LAYER_LABELS := {"vertical": "Vertical", "horizontal": "Horizontal"}
