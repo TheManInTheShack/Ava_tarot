@@ -215,11 +215,19 @@ func _build_layout_section() -> void:
 
 	_layout_mod_group.add_child(HSeparator.new())
 
-	var add_row := HBoxContainer.new()
+	# Two rows, not one — a single row of name + x + y + button wants ~360px
+	# and the panel is a hard 320px now (see Main.gd's PANEL_W). Squeezed
+	# into one row, the button (the one element with no explicit minimum
+	# width) got shrunk down to almost nothing by the HBoxContainer, with
+	# its label still rendering past its own tiny actual rect unclicked —
+	# found live: the button LOOKED normal-sized but only its top-left
+	# corner was actually clickable.
 	_slot_new_name = LineEdit.new()
 	_slot_new_name.placeholder_text = "Slot name"
-	_slot_new_name.custom_minimum_size = Vector2(110, 0)
-	add_row.add_child(_slot_new_name)
+	_slot_new_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_layout_mod_group.add_child(_slot_new_name)
+
+	var add_row := HBoxContainer.new()
 	_slot_new_x = _make_spin_box()
 	_slot_new_x.value = DEFAULT_NEW_SLOT_POS.x
 	add_row.add_child(_slot_new_x)
@@ -228,6 +236,7 @@ func _build_layout_section() -> void:
 	add_row.add_child(_slot_new_y)
 	var add_slot_btn := Button.new()
 	add_slot_btn.text = "Add Slot"
+	add_slot_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	add_slot_btn.pressed.connect(func() -> void:
 		var n: String = _slot_new_name.text.strip_edges()
 		if n != "":
@@ -415,27 +424,37 @@ func set_slots(slots: Dictionary) -> void:
 	_slot_row_boxes.clear()
 	for slot_id in slots.keys():
 		var info: Dictionary = slots[slot_id]
-		var row := HBoxContainer.new()
+		var entry := VBoxContainer.new()
+
+		# Name gets its own row (SIZE_EXPAND_FILL, whatever width) — packed
+		# into the same row as x/y/Delete, name + x + y + button wants
+		# ~320px against the panel's ~290px usable width, and whichever
+		# element has no explicit minimum (the button) silently gets
+		# squeezed down to a near-unclickable sliver. Same fix as the Add
+		# Slot row above, for the same reason.
 		var label := Label.new()
 		label.text = info.get("name", slot_id)
-		label.custom_minimum_size = Vector2(90, 0)
-		row.add_child(label)
+		entry.add_child(label)
 
+		var pos_row := HBoxContainer.new()
 		var x_box := _make_spin_box()
 		x_box.value = info.get("x", 0.0)
-		row.add_child(x_box)
+		pos_row.add_child(x_box)
 		var y_box := _make_spin_box()
 		y_box.value = info.get("y", 0.0)
-		row.add_child(y_box)
+		pos_row.add_child(y_box)
 		_slot_row_boxes[slot_id] = {"x": x_box, "y": y_box}
 
 		var del_btn := Button.new()
 		del_btn.text = "Delete"
+		del_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var slot_name: String = info.get("name", slot_id)
 		del_btn.pressed.connect(func() -> void: _confirm_delete_slot(slot_id, slot_name))
-		row.add_child(del_btn)
+		pos_row.add_child(del_btn)
+		entry.add_child(pos_row)
 
-		_slot_rows_form.add_child(row)
+		_slot_rows_form.add_child(entry)
+		_slot_rows_form.add_child(HSeparator.new())
 
 	_refresh_cards_section(slots)
 	_refresh_deck_slot_menu(slots)
@@ -701,21 +720,30 @@ func _refresh_cards_section(slots: Dictionary) -> void:
 		var slot_name: String = slots[slot_id].get("name", slot_id)
 		for layer in ["vertical", "horizontal"]:
 			var key := "%s:%s" % [slot_id, layer]
-			var row := HBoxContainer.new()
+			var entry := VBoxContainer.new()
+
+			# This row (label + two checkboxes wanting ~330px against a
+			# 320px-fixed panel) is the original "Client Access is wider
+			# than the others" bug — it used to grow the whole panel to
+			# make room; now that the panel can't do that, it'd silently
+			# squeeze a checkbox down to a near-unclickable sliver instead
+			# (same failure mode found live on the Add Slot button). Label
+			# on its own row avoids the same fate here.
 			var label := Label.new()
 			label.text = "%s — %s" % [slot_name, LAYER_LABELS[layer]]
-			label.custom_minimum_size = Vector2(160, 0)
-			row.add_child(label)
+			entry.add_child(label)
 
+			var cb_row := HBoxContainer.new()
 			var visible_cb := CheckBox.new()
 			visible_cb.text = "Visible"
-			row.add_child(visible_cb)
+			cb_row.add_child(visible_cb)
 			_visible_cbs[key] = visible_cb
 
 			var flip_cb := CheckBox.new()
 			flip_cb.text = "Can flip"
-			row.add_child(flip_cb)
+			cb_row.add_child(flip_cb)
 			_flip_cbs[key] = flip_cb
+			entry.add_child(cb_row)
 
 			var emit_change := func() -> void:
 				var actions: Array = ["flip"] if flip_cb.button_pressed else []
@@ -723,7 +751,8 @@ func _refresh_cards_section(slots: Dictionary) -> void:
 			visible_cb.toggled.connect(func(_v: bool) -> void: emit_change.call())
 			flip_cb.toggled.connect(func(_v: bool) -> void: emit_change.call())
 
-			_cards_form.add_child(row)
+			_cards_form.add_child(entry)
+			_cards_form.add_child(HSeparator.new())
 
 
 ## Keeps these checkboxes honest when ACL changes from elsewhere (the card's
