@@ -26,12 +26,18 @@ consulting, but nothing there should be built on directly.
 
 ---
 
-## Current State (as of 2026-08-12)
+## Current State (as of 2026-08-13)
 
-**Deployed and verified working end-to-end on avareads.com.** The 2026-08-08
-baseline (session start → deal → controller toggles visibility/flip → client
-sees it → checkpoint on End Reading) still holds; Steps 1–2 and most of
-Step 3 of the `Meta/Reading-Model.md` roadmap have since landed on top of it.
+**The 2026-08-08 baseline** (session start → deal → controller toggles
+visibility/flip → client sees it → checkpoint on End Reading) **was verified
+working end-to-end on avareads.com by hands-on testing.** Steps 1–4, 5
+(piece 1 of 2), and 7 of the `Meta/Reading-Model.md` roadmap have since
+landed and been deployed on top of it (2026-08-11 through 2026-08-13), but
+**not yet re-verified interactively** — that session's testing happened from
+a different machine than the one doing the building, so treat everything
+past the 2026-08-08 baseline as deployed-but-unconfirmed until someone
+actually clicks through it. Deal Loose/Modify Card's connecting-line
+rendering especially — it's the one piece of new drawing code in this batch.
 
 ### What works
 - Public-tier login (`client_test` account, role `public`) → auto-redirects
@@ -71,9 +77,33 @@ Step 3 of the `Meta/Reading-Model.md` roadmap have since landed on top of it.
   diff-checks the closing placements against the last save
   (`last_saved_placements` in `Grant/server/api-service/main.py`) and skips
   a redundant Scenario write if nothing changed since the last Record.
-- Deal Three-Card: deals one vertical card per slot in the active layout
-  from `Data/cards.json`, face-down, ~25% reversed (still a fixed "deal to
-  every slot at once" button — real Deck controls are Step 4)
+- **Deck controls are real** (Step 4, done 2026-08-13): a persistent standing
+  order (`_deck_order`, undealt cards only) replaces the old inline-shuffle
+  stopgap. Reset (clears the table, returns dealt cards to the pool) /
+  Reshuffle / Unshuffle (canonical order: Major Arcana 0–21, then
+  Wands/Cups/Swords/Pentacles Ace–King) / Deal Next (fills the next empty
+  layer in slot-creation order) / Deal to Slot (explicit slot+layer picker)
+  / **Deal Loose** (untethered card, cascaded into a tray). Dealing is
+  state-independent — works in or out of a session, and out-of-session
+  dealing produces zero graph writes for free since Record Scenario/End
+  Reading are already gated to in-session.
+- **Modifier mechanic, right-click path only** (Step 5 piece 1 of 2, done
+  2026-08-13): a loose card's context menu gets Turn/Invert/**Modify
+  Card**/Clear Modifier — picks any other on-table card (slotted or loose)
+  and writes a `MODIFIES` edge between the two at checkpoint, drawn on the
+  table as a connecting line. **Drag-and-drop (path 2) is deliberately not
+  built** — real mouse-drag input handling is the one class of change that
+  can't be verified without hands-on testing, and this is a live tool; held
+  back rather than shipped blind. Loose cards are controller-only for now —
+  no ACL modeled for them yet, so `grant-api`'s `_filter_state_for_client`
+  explicitly never sends `state.loose` to a client.
+- **Layout switching mid-session auto-saves** (Step 7, done 2026-08-13):
+  switching the active Layout (or creating a new one) while in a session now
+  triggers the same mid-session-save mechanic as Record Scenario first if
+  there are any cards on the table, instead of silently discarding them —
+  matches Reading-Model.md's "a Layout switch is just another trigger for
+  that mechanic, not a new one." Also resets `_deck_order` to canonical
+  order on any switch ("reshuffles back to its ready state").
 - Tap-to-flip: controller can flip any of its own cards directly; client can
   flip only a card the controller has currently granted the `flip` action on
 - Live ACL: per-layer (not per-slot) visible/actions toggles in the Client
@@ -87,10 +117,9 @@ Step 3 of the `Meta/Reading-Model.md` roadmap have since landed on top of it.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Card dragging / freeform placement (cards and slots are both fixed to
-  numeric-field-set positions; dragging is Step 5)
-- Session as a formal graph entity, Client rename completeness (MBTI-style
-  properties, `display_name`), Traits, Background, the loose-card/`MODIFIES`
-  modifier mechanic — Steps 3, 5, 6 of the roadmap
+  numeric-field-set positions or the Deck section's controls; needs
+  hands-on testing to build safely — see Step 5 piece 2 below)
+- Traits & Background (Step 6) — small Tag-style managed lists, not started
 - Celtic Cross / Ava's Celtic Cross layouts (buildable now via the Layout
   editor, just not pre-seeded)
 - `point` and `pick` ACL actions (protocol supports them; only `flip` is
@@ -254,18 +283,30 @@ pluggable wherever convenient once their own prerequisites are met.
    in-session Record Scenario/End Reading); and the diff-check-before-close
    logic (skips a redundant Scenario write if nothing changed since the
    last Record).
-4. **Deck controls + freeform out-of-session play** — persistent deck-order
-   state, Reset/Reshuffle/Unshuffle/Deal to Slot/Deal Next/Deal Loose.
-   Out-of-session dealing should produce zero graph writes for free, from
-   the schema itself, not special-cased.
-5. **Card dragging + loose cards + the modifier mechanic** — Deal Loose, the
-   three-way drag resolution (empty→vertical / filled-vertical→horizontal /
-   both-filled→highlight+`MODIFIES`), "Modify Card" as the right-click
-   alternate path.
+4. ~~**Deck controls + freeform out-of-session play**~~ — done 2026-08-13:
+   persistent `_deck_order` (undealt cards only), Reset/Reshuffle/Unshuffle/
+   Deal to Slot/Deal Next/Deal Loose. Out-of-session dealing already
+   produces zero graph writes for free, from the schema itself (Record/End
+   are the only checkpoint writers, both gated to in-session).
+5. **Card dragging + loose cards + the modifier mechanic** — 1 of 2 paths
+   done 2026-08-13: Deal Loose + "Modify Card" as the right-click alternate
+   path (picks a target from a menu, writes `MODIFIES`, draws a connecting
+   line). **Remaining: the three-way drag resolution**
+   (empty→vertical / filled-vertical→horizontal / both-filled→
+   highlight+`MODIFIES`) — deliberately held back from the piece above since
+   real mouse-drag input handling can't be verified without hands-on
+   testing on a live tool. Do this one with the user at a computer able to
+   click through it, not unattended.
 6. **Traits & Background** — both small, Tag-style managed lists,
-   essentially independent of everything above.
-7. **Layout switching mid-session** — restart-with-auto-save behavior; needs
-   Step 2 (more than one real layout) and Step 3 (the save mechanic).
+   essentially independent of everything above. Not started; note the OCEAN
+   trait-weighting schema (`Trait--LOADS_ON-->OceanFactor`) already exists
+   server-side from the persona-seeding work, just not exposed in this
+   controller's UI yet.
+7. ~~**Layout switching mid-session**~~ — done 2026-08-13: switching or
+   creating a Layout while in a session auto-saves first (same mechanic as
+   Record Scenario) if there are any cards on the table, then resets
+   `_deck_order` to canonical order ("reshuffles back to its ready state").
+   Out-of-session switching stays passive, unchanged.
 
 **Also still open, unrelated to this sequence:**
 - Draw actual card art in `CardNode._draw()` instead of the name-text placeholder

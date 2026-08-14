@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.6.0"
+const VERSION := "0.6.1"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -285,20 +285,56 @@ func _create_slot_with_layers(layout_id: String, name: String, x: float, y: floa
 	return slot_id
 
 
+## Reading-Model.md: "If cards were already placed when a mid-session Layout
+## change happens, the current table state gets recorded first, same as any
+## other mid-session save — a Layout switch is just another trigger for
+## that mechanic, not a new one." Out of session (_graph_session_node_id
+## empty) there's no Session to protect, so nothing to save — "changing the
+## selection is passive."
+func _auto_save_before_layout_switch() -> void:
+	if _graph_session_node_id == "":
+		return
+	var cards: Dictionary = _state.get("cards", {})
+	var loose: Dictionary = _state.get("loose", {})
+	if cards.is_empty() and loose.is_empty():
+		return
+	_send_checkpoint(false)
+	# Same wait-then-resync shape as Record Scenario/End Reading — the WS
+	# "save" message has no ack yet, and _create_layout_node() (the caller
+	# right after this, for a brand-new layout) mutates _graph locally, so
+	# it must already be the post-checkpoint copy or the PUT that follows
+	# would silently erase the Session/Scenario nodes this save just wrote.
+	await get_tree().create_timer(0.5).timeout
+	await _resync_graph()
+
+
+## "Reshuffles back to its ready state" (Reading-Model.md) — a layout switch
+## gets a fresh full deck, not just an empty table. Recomputed directly from
+## the full catalog rather than tracking what to return, since
+## _reset_table() (called right before this) already clears every card
+## that was on the table — nothing dealt is unaccounted for.
+func _reset_deck_to_ready_state() -> void:
+	_deck_order = _canonical_deck_order()
+
+
 func _on_layout_selected(layout_id: String) -> void:
 	if layout_id == _active_layout_id:
 		return
+	await _auto_save_before_layout_switch()
 	_active_layout_id = layout_id
 	_reset_table()
+	_reset_deck_to_ready_state()
 	_apply_active_layout()
 
 
 func _on_layout_created(name: String) -> void:
+	await _auto_save_before_layout_switch()
 	var new_id := _create_layout_node(name)
 	await _save_graph()
 	_parse_layouts()
 	_active_layout_id = new_id
 	_reset_table()
+	_reset_deck_to_ready_state()
 	_apply_active_layout()
 
 
