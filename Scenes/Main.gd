@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.8.3"
+const VERSION := "0.9.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -152,6 +152,7 @@ func _setup_controller() -> void:
 	_panel.slots_saved.connect(_on_slots_saved)
 	_panel.slot_deleted.connect(_on_slot_deleted)
 	_panel.trait_created.connect(_on_trait_created)
+	_panel.trait_deleted.connect(_on_trait_deleted)
 	_panel.trait_toggled.connect(_on_trait_toggled)
 	_panel.client_focus_changed.connect(_refresh_traits_panel)
 	_panel.exit_pressed.connect(_on_exit_pressed)
@@ -163,9 +164,15 @@ func _setup_controller() -> void:
 	ApiClient.client_joined.connect(_on_client_joined)
 
 	await _load_layouts()
-	_panel.set_clients(await ApiClient.get_clients())
-	# Traits' "current focus" depends on the client picker, so this can only
-	# happen once both the graph (trait vocabulary) and the picker (initial
+	# Session's picker (who to Start Reading with) and Traits' own picker
+	# (whose traits am I looking at) are deliberately independent selections
+	# — see _build_traits_section()'s doc comment — but both start from the
+	# same fetched client list, no reason to hit the endpoint twice.
+	var clients: Array = await ApiClient.get_clients()
+	_panel.set_clients(clients)
+	_panel.set_traits_clients(clients)
+	# Traits' "current focus" depends on its own picker, so this can only
+	# happen once both the graph (trait vocabulary) and that picker (initial
 	# selection) are loaded — see _refresh_traits_panel's own doc comment.
 	_refresh_traits_panel()
 
@@ -630,21 +637,22 @@ func _client_trait_ids_for(client_id: String) -> Dictionary:
 
 
 ## "The Trait vocabulary and assign to whichever Client is currently in
-## focus (the client picked for the next session, or the active session's
-## client)" — Reading-Model.md. In-session, _pending_client (set atomically
-## at Start Reading) IS that client. Out of session, it's whatever the
-## Session section's own picker currently has selected.
+## focus" — Reading-Model.md, adapted per live feedback: in-session,
+## _pending_client (set atomically at Start Reading) IS that client — locked,
+## not pickable. Out of session, it's whatever Traits' own client picker
+## currently has selected (deliberately separate from the Session section's
+## picker — see _build_traits_section()'s doc comment in ControllerPanel.gd).
 func _focused_client_id() -> String:
 	if not _pending_client.is_empty():
 		return "client-%d" % int(_pending_client.get("user_id", 0))
-	var selected: Dictionary = _panel.get_selected_client()
+	var selected: Dictionary = _panel.get_traits_selected_client()
 	if selected.is_empty():
 		return ""
 	return "client-%d" % int(selected.get("id", 0))
 
 
 func _focused_client_label() -> String:
-	var info: Dictionary = _pending_client if not _pending_client.is_empty() else _panel.get_selected_client()
+	var info: Dictionary = _pending_client if not _pending_client.is_empty() else _panel.get_traits_selected_client()
 	if info.is_empty():
 		return ""
 	var dn: String = info.get("display_name", "")
@@ -672,9 +680,23 @@ func _on_trait_created(name: String) -> void:
 	_refresh_traits_panel()
 
 
-## No-op if no client is currently focused (ControllerPanel disables the
-## checkboxes in that case, but a queued signal from just before a picker
-## change is cheap to guard against here too).
+## Removes the Trait node itself, plus every edge touching it — HAS_TRAIT
+## from any client who had it, and LOADS_ON to its OceanFactor if it was
+## part of the seeded weighting bank. Only ever called after
+## ControllerPanel's own delete-confirmation dialog — see
+## _confirm_delete_trait there.
+func _on_trait_deleted(trait_id: String) -> void:
+	var nodes: Array = _graph.get("nodes", [])
+	_graph["nodes"] = nodes.filter(func(n): return str(n.get("id", "")) != trait_id)
+	var edges: Array = _graph.get("edges", [])
+	_graph["edges"] = edges.filter(func(e): return str(e.get("from", "")) != trait_id and str(e.get("to", "")) != trait_id)
+	await _save_graph()
+	_refresh_traits_panel()
+
+
+## No-op if no client is currently focused — the Add/Remove controls only
+## ever act on the currently-focused client's traits, so this only fires
+## for a real, targeted change.
 func _on_trait_toggled(trait_id: String, has_trait: bool) -> void:
 	var client_id := _focused_client_id()
 	if client_id == "":

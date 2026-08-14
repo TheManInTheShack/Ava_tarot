@@ -32,14 +32,17 @@ consulting, but nothing there should be built on directly.
 visibility/flip → client sees it → checkpoint on End Reading) **was verified
 working end-to-end on avareads.com by hands-on testing.** Steps 1–4, 5
 (piece 1 of 2), 6 (Traits half), and 7 of the `Meta/Reading-Model.md`
-roadmap have since landed and been deployed on top of it (2026-08-11
-through 2026-08-13), but **not yet re-verified interactively** — that
-session's testing happened from a different machine than the one doing the
-building, so treat everything past the 2026-08-08 baseline as
-deployed-but-unconfirmed until someone actually clicks through it. Deal
-Loose/Modify Card's connecting-line rendering and the Traits list's new
-`ScrollContainer` especially — both are new drawing/layout code in this
-batch with zero eyes on them yet.
+roadmap landed 2026-08-11 through 2026-08-13, deployed but not
+interactively tested at the time. **The Layout editor and Traits manager
+have since had real hands-on testing (2026-08-14)** — several real bugs
+only surfaced that way and got fixed live: a squeeze bug that made the Add
+Slot button, per-slot rows, and Client Access's checkboxes silently
+near-unclickable (rows demanding more width than the panel's fixed 320px
+had to give), the new-layout mod-mode flash, and the Traits section's
+whole assignment UI got redesigned around what actually turned out to be
+usable versus what looked reasonable on paper. Deal Loose/Modify Card's
+connecting-line rendering specifically is still untested — it's the one
+piece of new drawing code from the earlier batch nobody's looked at yet.
 
 ### What works
 - Public-tier login (`client_test` account, role `public`) → auto-redirects
@@ -106,13 +109,21 @@ batch with zero eyes on them yet.
   matches Reading-Model.md's "a Layout switch is just another trigger for
   that mechanic, not a new one." Also resets `_deck_order` to canonical
   order on any switch ("reshuffles back to its ready state").
-- **Traits manager** (Step 6, half done 2026-08-13): a state-independent
-  Traits rollup checkbox-lists the vocabulary (80 live, seeded 2026-08-11)
-  against whichever Client is currently in focus (in-session client, or the
-  Session picker's selection out of session), toggling writes/removes
-  `Client--HAS_TRAIT-->Trait` edges directly; a text field adds new Trait
-  nodes. The checkbox list is wrapped in a bounded `ScrollContainer` — 80
-  unwrapped checkboxes would have run taller than the whole viewport.
+- **Traits manager** (Step 6, half done 2026-08-13, reworked 2026-08-14 per
+  live feedback): the rollup is now two distinct control clusters, not one
+  undifferentiated checkbox list against all 80 traits. **Vocabulary**: Add
+  Trait (text field, unchanged) plus a new **Delete Trait** (dropdown over
+  the full vocabulary + confirm-gated delete — cascades to remove the Trait
+  node and every edge touching it, `HAS_TRAIT` from any client and
+  `LOADS_ON` to its `OceanFactor` alike). **Client Traits**: its own client
+  picker, deliberately independent from the Session section's (in-session,
+  locked to that client via `_pending_client`; out of session, this
+  picker — "who will the next reading be with" and "whose traits am I
+  looking at" are different questions). Shows only the *assigned* traits
+  as a short list, each with a Remove button, plus a dropdown (filtered to
+  what the focused client doesn't already have) + Add button to attach
+  more. No more scrolling through all 80 to find the handful someone
+  actually has.
 - Tap-to-flip: controller can flip any of its own cards directly; client can
   flip only a card the controller has currently granted the `flip` action on
 - Live ACL: per-layer (not per-slot) visible/actions toggles in the Client

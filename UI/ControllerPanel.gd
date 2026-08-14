@@ -24,7 +24,8 @@ signal slot_added(name: String, x: float, y: float)
 signal slots_saved(updates: Array)  # [{"slot_id","x","y"}, ...] — Save Layout's batch commit
 signal slot_deleted(slot_id: String)
 signal trait_created(name: String)
-signal trait_toggled(trait_id: String, has_trait: bool)
+signal trait_deleted(trait_id: String)
+signal trait_toggled(trait_id: String, has_trait: bool)  # add (true) / remove (false) for the focused client
 signal client_focus_changed()
 signal exit_pressed()
 
@@ -69,9 +70,20 @@ var _slots_cache: Dictionary = {}   # most recent set_slots() call, for menu lab
 var _deck_slot_menu: MenuButton
 var _deck_slot_options: Array = []  # [{"slot_id","layer"}], parallel to popup item ids
 var _deck_slot_selected_index: int = -1
-var _traits_form: VBoxContainer
+var _traits_cache: Dictionary = {}   # trait_id -> name, most recent set_traits() call
+var _assigned_traits_form: VBoxContainer
 var _traits_focus_label: Label
+var _traits_picker_row: HBoxContainer  # client picker, visible only out-of-session
+var _traits_client_menu: MenuButton
+var _traits_clients: Array = []
+var _traits_selected_client_index: int = -1
 var _trait_new_name: LineEdit
+var _trait_delete_menu: MenuButton
+var _trait_delete_options: Array = []  # trait_ids, parallel to popup item ids
+var _trait_delete_selected_index: int = -1
+var _trait_add_menu: MenuButton
+var _trait_add_options: Array = []     # trait_ids not yet on the focused client
+var _trait_add_selected_index: int = -1
 
 
 func _ready() -> void:
@@ -454,7 +466,6 @@ func set_slots(slots: Dictionary) -> void:
 		entry.add_child(pos_row)
 
 		_slot_rows_form.add_child(entry)
-		_slot_rows_form.add_child(HSeparator.new())
 
 	_refresh_cards_section(slots)
 	_refresh_deck_slot_menu(slots)
@@ -509,6 +520,12 @@ func _build_session_section() -> void:
 func set_in_session(in_session: bool) -> void:
 	_out_of_session_group.visible = not in_session
 	_in_session_group.visible = in_session
+	# Traits' own client picker only matters out of session — in-session,
+	# focus is locked to that client and _traits_focus_label already covers
+	# saying so. Null-checked: this fires once from _build_session_section()
+	# during _ready(), before _build_traits_section() runs and creates it.
+	if _traits_picker_row != null:
+		_traits_picker_row.visible = not in_session
 
 
 ## clients: [{"id": int, "username": String, "display_name": String|null}, ...]
@@ -536,7 +553,6 @@ func _label_for_client(c: Dictionary) -> String:
 func _on_client_menu_id_pressed(id: int) -> void:
 	_selected_client_index = id
 	_client_menu.text = _label_for_client(_clients[id])
-	client_focus_changed.emit()  # Traits section reads whoever's picked here when out of session
 
 
 ## Returns {} if no client is selected (e.g. the picker is still empty).
@@ -632,73 +648,210 @@ func _on_deck_slot_menu_id_pressed(id: int) -> void:
 	_deck_slot_menu.text = _deck_slot_label(_deck_slot_options[id])
 
 
-## State-independent (per Reading-Model.md) — "the Trait vocabulary and
-## assign to whichever Client is currently in focus." A checkbox list rather
-## than a full editor: this is a shortcut into the same HAS_TRAIT graph
-## write Paradotz itself could make, not a separate rules engine.
+## State-independent (per Reading-Model.md), two sub-groups per live
+## feedback: managing the trait *vocabulary* itself (add/delete a Trait
+## node) is a separate concern from assigning traits to a specific client,
+## so they're two distinct control clusters in this one rollup rather than
+## one undifferentiated list. Both are shortcuts into the same
+## HAS_TRAIT/Trait-node graph writes Paradotz itself could make, not a
+## separate rules engine.
 func _build_traits_section() -> void:
 	var form := VBoxContainer.new()
 
-	_traits_focus_label = Label.new()
-	_traits_focus_label.text = "No client selected"
-	_traits_focus_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
-	form.add_child(_traits_focus_label)
-	form.add_child(HSeparator.new())
+	var vocab_label := Label.new()
+	vocab_label.text = "Vocabulary"
+	vocab_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	form.add_child(vocab_label)
 
-	# The live vocabulary is already 80 traits (seed-personas.js's OCEAN bank)
-	# — one checkbox per trait in a plain VBoxContainer would run to ~2000px,
-	# taller than the whole 1080px viewport, with no other section of this
-	# panel having any scroll story to fall back on. Bounded ScrollContainer
-	# so the list scrolls internally instead of blowing out the panel.
-	var scroll := ScrollContainer.new()
-	scroll.custom_minimum_size = Vector2(0, 200)
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	form.add_child(scroll)
-
-	_traits_form = VBoxContainer.new()
-	_traits_form.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(_traits_form)
-
-	form.add_child(HSeparator.new())
-
-	var add_row := HBoxContainer.new()
+	var add_trait_row := HBoxContainer.new()
 	_trait_new_name = LineEdit.new()
 	_trait_new_name.placeholder_text = "New trait name"
 	_trait_new_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	add_row.add_child(_trait_new_name)
-	var add_btn := Button.new()
-	add_btn.text = "Add Trait"
-	add_btn.pressed.connect(func() -> void:
+	add_trait_row.add_child(_trait_new_name)
+	var add_trait_btn := Button.new()
+	add_trait_btn.text = "Add Trait"
+	add_trait_btn.pressed.connect(func() -> void:
 		var n: String = _trait_new_name.text.strip_edges()
 		if n != "":
 			trait_created.emit(n)
 			_trait_new_name.text = ""
 	)
-	add_row.add_child(add_btn)
-	form.add_child(add_row)
+	add_trait_row.add_child(add_trait_btn)
+	form.add_child(add_trait_row)
+
+	var delete_trait_row := HBoxContainer.new()
+	_trait_delete_menu = MenuButton.new()
+	_trait_delete_menu.text = "No traits"
+	_trait_delete_menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_trait_delete_menu.get_popup().id_pressed.connect(_on_trait_delete_menu_id_pressed)
+	delete_trait_row.add_child(_trait_delete_menu)
+	var delete_trait_btn := Button.new()
+	delete_trait_btn.text = "Delete Trait"
+	delete_trait_btn.pressed.connect(_confirm_delete_trait)
+	delete_trait_row.add_child(delete_trait_btn)
+	form.add_child(delete_trait_row)
+
+	form.add_child(HSeparator.new())
+
+	var assign_label := Label.new()
+	assign_label.text = "Client Traits"
+	assign_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	form.add_child(assign_label)
+
+	# In-session, focus is locked to that client (this label covers it, same
+	# as the Session section's own status line) — this picker only matters,
+	# and is only shown, out of session. Deliberately its own picker rather
+	# than reading the Session section's client selection: that one answers
+	# "who will the next reading be with," this one answers "whose traits am
+	# I looking at right now" — related but genuinely different questions,
+	# so conflating them would make it look like changing one changes the
+	# other.
+	_traits_picker_row = HBoxContainer.new()
+	_traits_client_menu = MenuButton.new()
+	_traits_client_menu.text = "No clients"
+	_traits_client_menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_traits_client_menu.get_popup().id_pressed.connect(_on_traits_client_menu_id_pressed)
+	_traits_picker_row.add_child(_traits_client_menu)
+	form.add_child(_traits_picker_row)
+
+	_traits_focus_label = Label.new()
+	_traits_focus_label.text = "No client selected"
+	form.add_child(_traits_focus_label)
+
+	_assigned_traits_form = VBoxContainer.new()
+	form.add_child(_assigned_traits_form)
+
+	var add_client_trait_row := HBoxContainer.new()
+	_trait_add_menu = MenuButton.new()
+	_trait_add_menu.text = "No traits to add"
+	_trait_add_menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_trait_add_menu.get_popup().id_pressed.connect(_on_trait_add_menu_id_pressed)
+	add_client_trait_row.add_child(_trait_add_menu)
+	var add_client_trait_btn := Button.new()
+	add_client_trait_btn.text = "Add"
+	add_client_trait_btn.pressed.connect(func() -> void:
+		if _trait_add_selected_index < 0 or _trait_add_selected_index >= _trait_add_options.size():
+			return
+		trait_toggled.emit(_trait_add_options[_trait_add_selected_index], true)
+	)
+	add_client_trait_row.add_child(add_client_trait_btn)
+	form.add_child(add_client_trait_row)
 
 	_make_rollup("Traits", _rollup_color(4), form)
 
 
-## traits: {trait_id: name} — the full vocabulary. client_trait_ids:
-## {trait_id: true} — which of those the focused client currently has.
-## focus_label: "" when no client is focused (picker empty, out of
-## session) — checkboxes are shown disabled in that case rather than
-## hidden, so the vocabulary itself is still visible/reviewable.
+func _on_trait_delete_menu_id_pressed(id: int) -> void:
+	_trait_delete_selected_index = id
+	_trait_delete_menu.text = _traits_cache.get(_trait_delete_options[id], "")
+
+
+## Ported pattern (not code) from Paradotz's NodePanel.gd:_on_delete_pressed
+## — same ConfirmationDialog shape as slot/layout deletion elsewhere in this
+## panel. Warns explicitly that this is vocabulary-wide, not per-client.
+func _confirm_delete_trait() -> void:
+	if _trait_delete_selected_index < 0 or _trait_delete_selected_index >= _trait_delete_options.size():
+		return
+	var trait_id: String = _trait_delete_options[_trait_delete_selected_index]
+	var trait_name: String = _traits_cache.get(trait_id, trait_id)
+	var dialog := ConfirmationDialog.new()
+	dialog.title = "Delete Trait"
+	dialog.dialog_text = "Delete trait \"%s\" from the vocabulary?\nRemoves it from every client who currently has it.\nThis cannot be undone." % trait_name
+	dialog.ok_button_text = "Delete"
+	dialog.cancel_button_text = "Cancel"
+	add_child(dialog)
+	dialog.confirmed.connect(func() -> void:
+		trait_deleted.emit(trait_id)
+		dialog.queue_free()
+	)
+	dialog.canceled.connect(func() -> void: dialog.queue_free())
+	dialog.popup_centered()
+
+
+func _on_traits_client_menu_id_pressed(id: int) -> void:
+	_traits_selected_client_index = id
+	_traits_client_menu.text = _label_for_client(_traits_clients[id])
+	client_focus_changed.emit()
+
+
+## clients: same shape as set_clients() — populated from the same fetched
+## list (see Main.gd), just a second, independent selection.
+func set_traits_clients(clients: Array) -> void:
+	_traits_clients = clients
+	var popup := _traits_client_menu.get_popup()
+	popup.clear()
+	for i in range(clients.size()):
+		popup.add_item(_label_for_client(clients[i]), i)
+	if clients.is_empty():
+		_traits_client_menu.text = "No clients"
+		_traits_selected_client_index = -1
+	else:
+		_traits_selected_client_index = 0
+		_traits_client_menu.text = _label_for_client(clients[0])
+
+
+## Returns {} if no client is selected (e.g. the picker is still empty).
+func get_traits_selected_client() -> Dictionary:
+	if _traits_selected_client_index < 0 or _traits_selected_client_index >= _traits_clients.size():
+		return {}
+	return _traits_clients[_traits_selected_client_index]
+
+
+func _on_trait_add_menu_id_pressed(id: int) -> void:
+	_trait_add_selected_index = id
+	_trait_add_menu.text = _traits_cache.get(_trait_add_options[id], "")
+
+
+## traits: {trait_id: name} — the full vocabulary, for both the Delete
+## Trait picker (vocabulary-wide) and the Add-to-client picker (filtered to
+## what the focused client doesn't already have). client_trait_ids:
+## {trait_id: true} — which of those the focused client currently has;
+## rendered as a short list with a Remove button each, not a checkbox
+## against the whole vocabulary. focus_label: "" when no client is focused.
 func set_traits(traits: Dictionary, client_trait_ids: Dictionary, focus_label: String) -> void:
+	_traits_cache = traits
 	_traits_focus_label.text = ("Traits for %s" % focus_label) if focus_label != "" else "No client selected"
 
-	for c in _traits_form.get_children():
-		c.queue_free()
-
-	var has_focus: bool = focus_label != ""
+	_trait_delete_options.clear()
+	var delete_popup := _trait_delete_menu.get_popup()
+	delete_popup.clear()
 	for trait_id in traits.keys():
-		var cb := CheckBox.new()
-		cb.text = traits[trait_id]
-		cb.disabled = not has_focus
-		cb.button_pressed = client_trait_ids.has(trait_id)
-		cb.toggled.connect(func(pressed: bool) -> void: trait_toggled.emit(trait_id, pressed))
-		_traits_form.add_child(cb)
+		delete_popup.add_item(traits[trait_id], _trait_delete_options.size())
+		_trait_delete_options.append(trait_id)
+	if _trait_delete_options.is_empty():
+		_trait_delete_menu.text = "No traits"
+		_trait_delete_selected_index = -1
+	else:
+		_trait_delete_selected_index = 0
+		_trait_delete_menu.text = traits[_trait_delete_options[0]]
+
+	for c in _assigned_traits_form.get_children():
+		c.queue_free()
+	for trait_id in client_trait_ids.keys():
+		var row := HBoxContainer.new()
+		var label := Label.new()
+		label.text = traits.get(trait_id, trait_id)
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(label)
+		var remove_btn := Button.new()
+		remove_btn.text = "Remove"
+		remove_btn.pressed.connect(func() -> void: trait_toggled.emit(trait_id, false))
+		row.add_child(remove_btn)
+		_assigned_traits_form.add_child(row)
+
+	_trait_add_options.clear()
+	var add_popup := _trait_add_menu.get_popup()
+	add_popup.clear()
+	for trait_id in traits.keys():
+		if client_trait_ids.has(trait_id):
+			continue
+		add_popup.add_item(traits[trait_id], _trait_add_options.size())
+		_trait_add_options.append(trait_id)
+	if _trait_add_options.is_empty():
+		_trait_add_menu.text = "No traits to add"
+		_trait_add_selected_index = -1
+	else:
+		_trait_add_selected_index = 0
+		_trait_add_menu.text = traits[_trait_add_options[0]]
 
 
 const LAYER_LABELS := {"vertical": "Vertical", "horizontal": "Horizontal"}
@@ -752,7 +905,6 @@ func _refresh_cards_section(slots: Dictionary) -> void:
 			flip_cb.toggled.connect(func(_v: bool) -> void: emit_change.call())
 
 			_cards_form.add_child(entry)
-			_cards_form.add_child(HSeparator.new())
 
 
 ## Keeps these checkboxes honest when ACL changes from elsewhere (the card's
