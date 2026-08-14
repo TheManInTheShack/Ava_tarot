@@ -26,15 +26,12 @@ signal card_context_requested(layer: String)
 ## The crossing pair's combined footprint (Vertical + a 90°-rotated
 ## Horizontal, both centered on the same point) is roughly 280x280 — but
 ## since the cards themselves are fully opaque, only the ring OUTSIDE that
-## footprint is ever visible at all. First pass (200/210/224) made that
-## ring only ~20-60px wide, "indiscernible" once cards are in place per
-## live feedback — bumped substantially, plus a gentler falloff exponent
-## (1.4, was 2.0) so the glow reads as extending further out rather than
-## just being a bigger version of the same tight, steep falloff. Tune
-## freely; nothing else depends on these exact numbers.
-const GLOW_RADIUS := 320.0
-const HALO_INNER_RADIUS := 340.0
-const HALO_OUTER_RADIUS := 360.0
+## footprint is ever visible at all. First pass (200) was "indiscernible"
+## once cards are in place; 320 was liked but asked to be reined in
+## slightly. Tune freely; nothing else depends on these exact numbers.
+const GLOW_RADIUS := 280.0
+const HALO_INNER_RADIUS := 296.0
+const HALO_OUTER_RADIUS := 312.0
 const GLOW_STEPS := 24  # concentric rings approximating a radial fade
 const GLOW_FALLOFF_EXPONENT := 1.4
 const GLOW_PEAK_ALPHA := 0.4
@@ -50,6 +47,11 @@ var _halo_color: Color = Color(1.0, 1.0, 1.0, 0.0)  # alpha 0 — nothing to sho
 func _ready() -> void:
 	custom_minimum_size = CardNode.CARD_SIZE
 	mouse_filter = Control.MOUSE_FILTER_IGNORE  # only the cards themselves are interactive
+	# Scaling (CardWorld.set_slots() sets .scale directly — Godot's own
+	# transform, no wrapper method needed) pivots around the crossing pair's
+	# center rather than the slot's x/y origin (top-left of the Vertical
+	# card), so resizing doesn't visibly shift the slot's table position.
+	pivot_offset = CardNode.CARD_SIZE / 2.0
 
 	_name_label = Label.new()
 	_name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER

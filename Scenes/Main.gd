@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.12.1"
+const VERSION := "0.13.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -259,6 +259,7 @@ func _parse_layouts() -> void:
 			"name": node.get("name", slot_id),
 			"x": float(props.get("x", 0.0)),
 			"y": float(props.get("y", 0.0)),
+			"scale": float(props.get("scale", 1.0)),
 			"layout_id": slot_layout[slot_id],
 			"vertical_id": vertical_id,
 			"horizontal_id": horizontal_id,
@@ -352,7 +353,7 @@ func _create_slot_with_layers(layout_id: String, name: String, x: float, y: floa
 	var edges: Array = _graph.get("edges", [])
 
 	var slot_id := _next_id()
-	nodes.append({"id": slot_id, "type": "Slot", "name": name, "properties": {"x": x, "y": y}})
+	nodes.append({"id": slot_id, "type": "Slot", "name": name, "properties": {"x": x, "y": y, "scale": 1.0}})
 	edges.append({"id": _next_id(), "from": layout_id, "to": slot_id, "type": "HAS_SLOT", "properties": {}})
 
 	# Sensible default (vertical then horizontal, after everything that
@@ -486,13 +487,12 @@ func _on_slot_renamed(slot_id: String, name: String) -> void:
 	_apply_active_layout()
 
 
-## "Save Layout"'s batch commit for the numeric-field editing path — every
-## row's current x/y in one graph write, instead of the old one-save-per-row
-## button. Same per-node update as _on_slot_updated, just looped and saved
-## once at the end rather than once per slot.
-## Position (x/y) lives on the Slot node; deal_order lives on the Slot's own
-## Vertical/Horizontal layer nodes (see _create_slot_with_layers) — two
-## separate node lookups per update, not one.
+## "Save Layout"'s batch commit for the numeric-field/slider editing path —
+## every row's current x/y/scale/deal-order in one graph write, instead of
+## the old one-save-per-row button. Position and scale live on the Slot
+## node itself; deal_order lives on the Slot's own Vertical/Horizontal
+## layer nodes (see _create_slot_with_layers) — a second node lookup per
+## update, not folded into the same one.
 func _on_slots_saved(updates: Array) -> void:
 	var nodes: Array = _graph.get("nodes", [])
 	for u in updates:
@@ -502,6 +502,7 @@ func _on_slots_saved(updates: Array) -> void:
 				var props: Dictionary = n.get("properties", {})
 				props["x"] = u.get("x", 0.0)
 				props["y"] = u.get("y", 0.0)
+				props["scale"] = u.get("scale", 1.0)
 				n["properties"] = props
 				break
 		var info: Dictionary = _slots.get(slot_id, {})

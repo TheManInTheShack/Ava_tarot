@@ -306,10 +306,10 @@ func set_layout_mod_mode(on: bool) -> void:
 
 
 ## Save Layout (bottom of the mod group, next to Delete Layout) commits
-## every slot row's current x/y/deal-order in one batch (there are no
+## every slot row's current x/y/scale/deal-order in one batch (there are no
 ## per-row Save buttons) and exits mod mode. Dragging a slot on the table
 ## still commits position immediately on drop, same as before; this is
-## specifically for the numeric-field editing path.
+## specifically for the numeric-field/slider editing path.
 func _commit_and_exit_layout_mod_mode() -> void:
 	var updates: Array = []
 	for slot_id in _slot_row_boxes.keys():
@@ -318,6 +318,7 @@ func _commit_and_exit_layout_mod_mode() -> void:
 			"slot_id": slot_id,
 			"x": boxes["x"].value,
 			"y": boxes["y"].value,
+			"scale": boxes["scale"].value,
 			"v_order": boxes["v_order"].value,
 			"h_order": boxes["h_order"].value,
 		})
@@ -386,15 +387,6 @@ func _make_order_spin_box() -> SpinBox:
 	sb.step = 1
 	sb.custom_minimum_size = Vector2(50, 0)
 	return sb
-
-
-func _make_column_header(text: String, width: float) -> Label:
-	var label := Label.new()
-	label.text = text
-	label.custom_minimum_size = Vector2(width, 0)
-	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
-	return label
 
 
 ## Two states for a slot's name line: normal (name + Rename + Delete) or,
@@ -521,27 +513,19 @@ func set_layouts(layouts: Dictionary, active_id: String) -> void:
 	_layout_menu.text = layouts.get(active_id, {}).get("name", "No Layout")
 
 
-## slots: {slot_id: {"name": String, "x": float, "y": float}} — the active
-## layout's slots. Rebuilds both this section's editable rows and Client
-## Access's per-layer rows, since they always change together.
-## No per-row Save button anymore — a row's x/y fields are just pending
-## edits until "Save Layout" (the Modify button's label while in mod mode)
-## commits every row at once and exits mod mode. _slot_row_boxes is what
-## that commit reads from.
-## Order fields on the left, Position on the right, each under a header
-## shown once (not per-row) — per live feedback the old layout (name, then
-## x/y, then order+Delete all crammed together) read as "bunched up."
-## Order and Position are each their own fixed-width block
-## (ORDER_BLOCK_WIDTH/POSITION_BLOCK_WIDTH) reused identically by the
-## header row and every slot row below it, so columns line up without
-## needing a true GridContainer/colspan.
-## 110+170=280px against a conservative ~290px usable width (320px panel,
-## minus the rollup panel's own content margin, minus room for a vertical
-## scrollbar once the slot list gets tall) — deliberately not cutting it as
-## close as it looks like it could be; see the width-squeeze bug found live
-## on the Add Slot row and Client Access earlier this session for why.
-const ORDER_BLOCK_WIDTH := 110.0
-const POSITION_BLOCK_WIDTH := 170.0
+## slots: {slot_id: {"name": String, "x": float, "y": float, "scale": float}}
+## — the active layout's slots. Rebuilds both this section's editable rows
+## and Client Access's per-layer rows, since they always change together.
+## No per-row Save button anymore — a row's fields are just pending edits
+## until "Save Layout" (bottom of the mod group) commits every row at once
+## and exits mod mode. _slot_row_boxes is what that commit reads from.
+##
+## Two columns per live feedback: Order (V#, H# — stacked vertically, so
+## scanning down the left column reads all of them) on the left, Position
+## (X, Y — stays side by side, unchanged) with the size slider under it on
+## the right. No column headers ("not helping" per feedback that killed
+## the previous "Order"/"Position" labels).
+const POSITION_ROW_WIDTH := 170.0  # matches x_box+y_box's combined width, so the slider below lines up
 
 
 func set_slots(slots: Dictionary) -> void:
@@ -550,41 +534,47 @@ func set_slots(slots: Dictionary) -> void:
 		c.queue_free()
 	_slot_row_boxes.clear()
 
-	if not slots.is_empty():
-		var header_row := HBoxContainer.new()
-		header_row.add_child(_make_column_header("Order", ORDER_BLOCK_WIDTH))
-		header_row.add_child(_make_column_header("Position", POSITION_BLOCK_WIDTH))
-		_slot_rows_form.add_child(header_row)
-
 	for slot_id in slots.keys():
 		var info: Dictionary = slots[slot_id]
 		var entry := VBoxContainer.new()
 		entry.add_child(_build_slot_name_row(slot_id, info))
 
 		var fields_row := HBoxContainer.new()
-		var order_block := HBoxContainer.new()
-		order_block.custom_minimum_size = Vector2(ORDER_BLOCK_WIDTH, 0)
+
+		var order_column := VBoxContainer.new()
 		var v_order_box := _make_order_spin_box()
 		v_order_box.value = info.get("vertical_deal_order", 0)
 		v_order_box.tooltip_text = "Vertical deal order"
-		order_block.add_child(v_order_box)
+		order_column.add_child(v_order_box)
 		var h_order_box := _make_order_spin_box()
 		h_order_box.value = info.get("horizontal_deal_order", 0)
 		h_order_box.tooltip_text = "Horizontal deal order"
-		order_block.add_child(h_order_box)
-		fields_row.add_child(order_block)
+		order_column.add_child(h_order_box)
+		fields_row.add_child(order_column)
 
-		var position_block := HBoxContainer.new()
-		position_block.custom_minimum_size = Vector2(POSITION_BLOCK_WIDTH, 0)
+		var position_column := VBoxContainer.new()
+		var xy_row := HBoxContainer.new()
 		var x_box := _make_spin_box()
 		x_box.value = info.get("x", 0.0)
-		position_block.add_child(x_box)
+		xy_row.add_child(x_box)
 		var y_box := _make_spin_box()
 		y_box.value = info.get("y", 0.0)
-		position_block.add_child(y_box)
-		fields_row.add_child(position_block)
+		xy_row.add_child(y_box)
+		position_column.add_child(xy_row)
 
-		_slot_row_boxes[slot_id] = {"x": x_box, "y": y_box, "v_order": v_order_box, "h_order": h_order_box}
+		var size_slider := HSlider.new()
+		size_slider.min_value = 0.5
+		size_slider.max_value = 2.0
+		size_slider.step = 0.05
+		size_slider.value = info.get("scale", 1.0)
+		size_slider.custom_minimum_size = Vector2(POSITION_ROW_WIDTH, 0)
+		size_slider.tooltip_text = "Slot size"
+		position_column.add_child(size_slider)
+		fields_row.add_child(position_column)
+
+		_slot_row_boxes[slot_id] = {
+			"x": x_box, "y": y_box, "v_order": v_order_box, "h_order": h_order_box, "scale": size_slider,
+		}
 		entry.add_child(fields_row)
 
 		_slot_rows_form.add_child(entry)

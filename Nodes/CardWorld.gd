@@ -70,6 +70,11 @@ func set_slots(slots: Dictionary) -> void:
 			_slot_visuals[slot_id] = visual
 		visual.position = pos
 		visual.set_name_text(info.get("name", ""))
+		# Plain Control.scale — SlotVisual's own pivot_offset centers it on
+		# the crossing pair, so this scales glow/halo/cards/labels together
+		# around that point without shifting the slot's table position.
+		var s: float = info.get("scale", 1.0)
+		visual.scale = Vector2(s, s)
 	_rebuild_slot_markers()
 
 

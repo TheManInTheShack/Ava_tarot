@@ -187,27 +187,37 @@ piece of new drawing code from the earlier batch nobody's looked at yet.
   is now a grandchild (`CardWorld -> _world -> SlotVisual -> CardNode`),
   so the modify-link line math switched from `_world`-local position math
   to composed global transforms, which stays correct regardless of nesting.
-  **First live look, same day**: the glow was liked but too subtle once
-  cards are in place — since the cards themselves are fully opaque, only
-  the ring *outside* the card edges was ever visible at all, and 200px
-  only gave that ring ~20-60px of width. Bumped substantially (glow 200→
-  320px, halo 210/224→340/360px) plus a gentler falloff exponent (2.0→
-  1.4, `GLOW_FALLOFF_EXPONENT`) so it reads as extending further out, not
-  just a bigger version of the same steep near-center falloff. Still a
-  reasoned-not-tuned guess — texture loading and the z-order swap remain
-  genuinely unverified.
-- **Layout editor rearranged** (2026-08-14, same-day follow-up): Save
-  Layout moved off the top Modify button (which now only ever enters mod
-  mode) down to the bottom, next to Delete Layout — both are "I'm done
-  with this layout" gestures. Order (V#/H#) and Position (X/Y) fields
-  split into two fixed-width columns (`ORDER_BLOCK_WIDTH`/
-  `POSITION_BLOCK_WIDTH`, deliberately conservative — 280px combined
-  against the panel's real ~290px budget, not cutting it as close as it
-  looks like it could) with a header row ("Order" | "Position") shown once
-  above the whole slot list rather than repeated per row. New **Rename**
-  button next to Delete on the slot's name line — reveals an inline
-  LineEdit + Save/Cancel in place, same reveal pattern as Traits' Modify
-  editor; only one slot can be mid-rename at a time.
+  **Live-tuned twice, same day**: first look said the glow was too subtle
+  once cards are in place (cards are fully opaque, so only the ring
+  *outside* the card edges is ever visible — 200px only gave that ring
+  ~20-60px of width). Bumped to 320px with a gentler falloff exponent
+  (2.0→1.4). Second look said "much better" but rein in the full radius
+  slightly — settled at 280/296/312 (glow/halo-inner/halo-outer). Texture
+  loading and the z-order swap remain genuinely unverified.
+- **Layout editor rearranged twice, same day**: Save Layout moved off the
+  top Modify button (which now only ever enters mod mode) down to the
+  bottom, next to Delete Layout — both are "I'm done with this layout"
+  gestures. New **Rename** button next to Delete on the slot's name line —
+  reveals an inline LineEdit + Save/Cancel in place, same pattern as
+  Traits' Modify editor; only one slot can be mid-rename at a time.
+  Numeric fields went through two passes: first, Order (V#/H# side by
+  side) and Position (X/Y side by side) as two blocks with column headers
+  above the whole list — then, per live feedback, the column headers
+  ("not helping") came back out, and Order restacked *vertically* (V# then
+  H# in the same narrow left column, "read down and see all of them along
+  the left") while Position stayed side by side on the right, per the
+  explicit ask. **New: a per-slot size slider** (`HSlider`, 0.5–2.0×,
+  default 1.0) sits under the X/Y row, committed through the same Save
+  Layout batch as everything else (a new `scale` property on the Slot
+  node — `_on_slots_saved`/`_create_slot_with_layers`/`_parse_layouts` all
+  touch it). Applied via plain `Control.scale` on the `SlotVisual` itself
+  (`CardWorld.set_slots()`), pivoting around the crossing pair's center
+  (`SlotVisual.pivot_offset`) rather than the slot's x/y origin, so
+  resizing doesn't visibly shift the slot's table position — scales
+  glow/halo/cards/labels together for free, no per-element scaling code
+  needed. Deliberately no live preview while dragging the slider (same
+  "nothing takes effect until Save Layout" rule as x/y and deal order) —
+  consistency over a fancier but riskier interaction.
 - Tap-to-flip: controller can flip any of its own cards directly; client can
   flip only a card the controller has currently granted the `flip` action on
 - Live ACL: per-layer (not per-slot) visible/actions toggles in the Client
