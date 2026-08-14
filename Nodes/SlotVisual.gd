@@ -24,14 +24,20 @@ signal card_tapped(layer: String)
 signal card_context_requested(layer: String)
 
 ## The crossing pair's combined footprint (Vertical + a 90°-rotated
-## Horizontal, both centered on the same point) is roughly 280x280 — the
-## glow fades out at a radius past that (a real margin, not touching the
-## card edges), and the halo sits just past the glow. Tune freely; nothing
-## else depends on these exact numbers.
-const GLOW_RADIUS := 200.0
-const HALO_INNER_RADIUS := 210.0
-const HALO_OUTER_RADIUS := 224.0
-const GLOW_STEPS := 20  # concentric rings approximating a radial fade
+## Horizontal, both centered on the same point) is roughly 280x280 — but
+## since the cards themselves are fully opaque, only the ring OUTSIDE that
+## footprint is ever visible at all. First pass (200/210/224) made that
+## ring only ~20-60px wide, "indiscernible" once cards are in place per
+## live feedback — bumped substantially, plus a gentler falloff exponent
+## (1.4, was 2.0) so the glow reads as extending further out rather than
+## just being a bigger version of the same tight, steep falloff. Tune
+## freely; nothing else depends on these exact numbers.
+const GLOW_RADIUS := 320.0
+const HALO_INNER_RADIUS := 340.0
+const HALO_OUTER_RADIUS := 360.0
+const GLOW_STEPS := 24  # concentric rings approximating a radial fade
+const GLOW_FALLOFF_EXPONENT := 1.4
+const GLOW_PEAK_ALPHA := 0.4
 
 var slot_id: String = ""
 var _name_label: Label
@@ -67,7 +73,7 @@ func _draw() -> void:
 	for i in range(GLOW_STEPS, 0, -1):
 		var t: float = float(i) / float(GLOW_STEPS)
 		var r: float = GLOW_RADIUS * t
-		var a: float = _glow_color.a * 0.35 * pow(1.0 - t, 2.0)
+		var a: float = _glow_color.a * GLOW_PEAK_ALPHA * pow(1.0 - t, GLOW_FALLOFF_EXPONENT)
 		draw_circle(center, r, Color(_glow_color.r, _glow_color.g, _glow_color.b, a))
 	if _halo_color.a > 0.0:
 		var mid_r: float = (HALO_INNER_RADIUS + HALO_OUTER_RADIUS) / 2.0

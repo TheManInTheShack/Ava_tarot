@@ -23,6 +23,7 @@ signal layout_mod_mode_changed(on: bool)
 signal slot_added(name: String, x: float, y: float)
 signal slots_saved(updates: Array)  # [{"slot_id","x","y"}, ...] — Save Layout's batch commit
 signal slot_deleted(slot_id: String)
+signal slot_renamed(slot_id: String, name: String)
 signal trait_created(name: String)
 signal trait_deleted(trait_id: String)
 signal trait_modified(trait_id: String, name: String, note: String)
@@ -56,7 +57,8 @@ var _layout_new_name: LineEdit
 var _layout_mod_group: VBoxContainer
 var _layout_mod_mode: bool = false
 var _slot_rows_form: VBoxContainer
-var _slot_row_boxes: Dictionary = {}  # slot_id -> {"x": SpinBox, "y": SpinBox}, read by Save Layout
+var _slot_row_boxes: Dictionary = {}  # slot_id -> {"x","y","v_order","h_order": SpinBox}, read by Save Layout
+var _renaming_slot_id: String = ""    # which slot's name row is showing the inline rename editor, if any
 var _slot_new_name: LineEdit
 var _slot_new_x: SpinBox
 var _slot_new_y: SpinBox
@@ -188,12 +190,7 @@ func _build_layout_section() -> void:
 	browse_row.add_child(_layout_menu)
 	_layout_modify_btn = Button.new()
 	_layout_modify_btn.text = "Modify"
-	_layout_modify_btn.pressed.connect(func() -> void:
-		if _layout_mod_mode:
-			_commit_and_exit_layout_mod_mode()
-		else:
-			set_layout_mod_mode(true)
-	)
+	_layout_modify_btn.pressed.connect(func() -> void: set_layout_mod_mode(true))
 	browse_row.add_child(_layout_modify_btn)
 	form.add_child(browse_row)
 
@@ -272,10 +269,23 @@ func _build_layout_section() -> void:
 
 	_layout_mod_group.add_child(HSeparator.new())
 
+	# "Save Layout" lives here now, not on the top Modify button — Modify
+	# only ever enters mod mode; this is the one explicit commit-and-exit
+	# action, next to Delete Layout since both are "I'm done with this
+	# layout" gestures. Switching the dropdown selection or deleting the
+	# layout are still the other (non-committing) ways out of mod mode.
+	var bottom_row := HBoxContainer.new()
+	var save_layout_btn := Button.new()
+	save_layout_btn.text = "Save Layout"
+	save_layout_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	save_layout_btn.pressed.connect(_commit_and_exit_layout_mod_mode)
+	bottom_row.add_child(save_layout_btn)
 	var delete_layout_btn := Button.new()
 	delete_layout_btn.text = "Delete Layout"
+	delete_layout_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	delete_layout_btn.pressed.connect(_confirm_delete_layout)
-	_layout_mod_group.add_child(delete_layout_btn)
+	bottom_row.add_child(delete_layout_btn)
+	_layout_mod_group.add_child(bottom_row)
 
 	form.add_child(_layout_mod_group)
 
@@ -291,15 +301,15 @@ func _build_layout_section() -> void:
 func set_layout_mod_mode(on: bool) -> void:
 	_layout_mod_mode = on
 	_layout_mod_group.visible = on
-	_layout_modify_btn.text = "Save Layout" if on else "Modify"
+	_renaming_slot_id = ""  # don't leave a stale rename editor showing next time this reopens
 	layout_mod_mode_changed.emit(on)
 
 
-## The Modify button becomes "Save Layout" while in mod mode (see above) —
-## clicking it then commits every slot row's current x/y/deal-order in one
-## batch (there are no more per-row Save buttons) and exits mod mode.
-## Dragging a slot on the table still commits position immediately on drop,
-## same as before; this is specifically for the numeric-field editing path.
+## Save Layout (bottom of the mod group, next to Delete Layout) commits
+## every slot row's current x/y/deal-order in one batch (there are no
+## per-row Save buttons) and exits mod mode. Dragging a slot on the table
+## still commits position immediately on drop, same as before; this is
+## specifically for the numeric-field editing path.
 func _commit_and_exit_layout_mod_mode() -> void:
 	var updates: Array = []
 	for slot_id in _slot_row_boxes.keys():
@@ -378,6 +388,70 @@ func _make_order_spin_box() -> SpinBox:
 	return sb
 
 
+func _make_column_header(text: String, width: float) -> Label:
+	var label := Label.new()
+	label.text = text
+	label.custom_minimum_size = Vector2(width, 0)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	return label
+
+
+## Two states for a slot's name line: normal (name + Rename + Delete) or,
+## while _renaming_slot_id == slot_id, editing (a LineEdit + Save + Cancel
+## in its place). Only one slot can be mid-rename at a time — same
+## single-editor-at-once rule as Layout's own mod mode and Traits' Modify
+## editor elsewhere in this panel.
+func _build_slot_name_row(slot_id: String, info: Dictionary) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	var slot_name: String = info.get("name", slot_id)
+
+	if _renaming_slot_id == slot_id:
+		var name_edit := LineEdit.new()
+		name_edit.text = slot_name
+		name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(name_edit)
+
+		var save_btn := Button.new()
+		save_btn.text = "Save"
+		save_btn.pressed.connect(func() -> void:
+			var n: String = name_edit.text.strip_edges()
+			if n != "":
+				slot_renamed.emit(slot_id, n)
+			_renaming_slot_id = ""
+			set_slots(_slots_cache)
+		)
+		row.add_child(save_btn)
+
+		var cancel_btn := Button.new()
+		cancel_btn.text = "Cancel"
+		cancel_btn.pressed.connect(func() -> void:
+			_renaming_slot_id = ""
+			set_slots(_slots_cache)
+		)
+		row.add_child(cancel_btn)
+	else:
+		var label := Label.new()
+		label.text = slot_name
+		label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(label)
+
+		var rename_btn := Button.new()
+		rename_btn.text = "Rename"
+		rename_btn.pressed.connect(func() -> void:
+			_renaming_slot_id = slot_id
+			set_slots(_slots_cache)
+		)
+		row.add_child(rename_btn)
+
+		var del_btn := Button.new()
+		del_btn.text = "Delete"
+		del_btn.pressed.connect(func() -> void: _confirm_delete_slot(slot_id, slot_name))
+		row.add_child(del_btn)
+
+	return row
+
+
 ## Nudges rightward by a full slot-width step (card + collision margin)
 ## until clear of every existing slot in the active layout, so adding
 ## several slots in a row without touching the x/y fields doesn't stack
@@ -454,60 +528,64 @@ func set_layouts(layouts: Dictionary, active_id: String) -> void:
 ## edits until "Save Layout" (the Modify button's label while in mod mode)
 ## commits every row at once and exits mod mode. _slot_row_boxes is what
 ## that commit reads from.
+## Order fields on the left, Position on the right, each under a header
+## shown once (not per-row) — per live feedback the old layout (name, then
+## x/y, then order+Delete all crammed together) read as "bunched up."
+## Order and Position are each their own fixed-width block
+## (ORDER_BLOCK_WIDTH/POSITION_BLOCK_WIDTH) reused identically by the
+## header row and every slot row below it, so columns line up without
+## needing a true GridContainer/colspan.
+## 110+170=280px against a conservative ~290px usable width (320px panel,
+## minus the rollup panel's own content margin, minus room for a vertical
+## scrollbar once the slot list gets tall) — deliberately not cutting it as
+## close as it looks like it could be; see the width-squeeze bug found live
+## on the Add Slot row and Client Access earlier this session for why.
+const ORDER_BLOCK_WIDTH := 110.0
+const POSITION_BLOCK_WIDTH := 170.0
+
+
 func set_slots(slots: Dictionary) -> void:
 	_slots_cache = slots
 	for c in _slot_rows_form.get_children():
 		c.queue_free()
 	_slot_row_boxes.clear()
+
+	if not slots.is_empty():
+		var header_row := HBoxContainer.new()
+		header_row.add_child(_make_column_header("Order", ORDER_BLOCK_WIDTH))
+		header_row.add_child(_make_column_header("Position", POSITION_BLOCK_WIDTH))
+		_slot_rows_form.add_child(header_row)
+
 	for slot_id in slots.keys():
 		var info: Dictionary = slots[slot_id]
 		var entry := VBoxContainer.new()
+		entry.add_child(_build_slot_name_row(slot_id, info))
 
-		# Name gets its own row (SIZE_EXPAND_FILL, whatever width) — packed
-		# into the same row as x/y/Delete, name + x + y + button wants
-		# ~320px against the panel's ~290px usable width, and whichever
-		# element has no explicit minimum (the button) silently gets
-		# squeezed down to a near-unclickable sliver. Same fix as the Add
-		# Slot row above, for the same reason.
-		var label := Label.new()
-		label.text = info.get("name", slot_id)
-		entry.add_child(label)
-
-		var pos_row := HBoxContainer.new()
-		var x_box := _make_spin_box()
-		x_box.value = info.get("x", 0.0)
-		pos_row.add_child(x_box)
-		var y_box := _make_spin_box()
-		y_box.value = info.get("y", 0.0)
-		pos_row.add_child(y_box)
-		entry.add_child(pos_row)
-
-		# Deal order: a per-LAYER rank, not per-slot — a slot's own Vertical
-		# and Horizontal can land anywhere relative to each other in the
-		# sequence (e.g. slot1-V=1, slot2-V=2, slot1-H=3), so this needs two
-		# independent fields, not one shared with the slot. Narrower than
-		# x/y (_make_order_spin_box) so this row — now also carrying Delete —
-		# stays inside the panel's real width budget; see set_slots()'s own
-		# note above about why name/position/order/delete are split across
-		# separate rows instead of one wide one.
-		var order_row := HBoxContainer.new()
+		var fields_row := HBoxContainer.new()
+		var order_block := HBoxContainer.new()
+		order_block.custom_minimum_size = Vector2(ORDER_BLOCK_WIDTH, 0)
 		var v_order_box := _make_order_spin_box()
 		v_order_box.value = info.get("vertical_deal_order", 0)
 		v_order_box.tooltip_text = "Vertical deal order"
-		order_row.add_child(v_order_box)
+		order_block.add_child(v_order_box)
 		var h_order_box := _make_order_spin_box()
 		h_order_box.value = info.get("horizontal_deal_order", 0)
 		h_order_box.tooltip_text = "Horizontal deal order"
-		order_row.add_child(h_order_box)
-		_slot_row_boxes[slot_id] = {"x": x_box, "y": y_box, "v_order": v_order_box, "h_order": h_order_box}
+		order_block.add_child(h_order_box)
+		fields_row.add_child(order_block)
 
-		var del_btn := Button.new()
-		del_btn.text = "Delete"
-		del_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var slot_name: String = info.get("name", slot_id)
-		del_btn.pressed.connect(func() -> void: _confirm_delete_slot(slot_id, slot_name))
-		order_row.add_child(del_btn)
-		entry.add_child(order_row)
+		var position_block := HBoxContainer.new()
+		position_block.custom_minimum_size = Vector2(POSITION_BLOCK_WIDTH, 0)
+		var x_box := _make_spin_box()
+		x_box.value = info.get("x", 0.0)
+		position_block.add_child(x_box)
+		var y_box := _make_spin_box()
+		y_box.value = info.get("y", 0.0)
+		position_block.add_child(y_box)
+		fields_row.add_child(position_block)
+
+		_slot_row_boxes[slot_id] = {"x": x_box, "y": y_box, "v_order": v_order_box, "h_order": h_order_box}
+		entry.add_child(fields_row)
 
 		_slot_rows_form.add_child(entry)
 

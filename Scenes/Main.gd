@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.12.0"
+const VERSION := "0.12.1"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -151,6 +151,7 @@ func _setup_controller() -> void:
 	_panel.slot_added.connect(_on_slot_added)
 	_panel.slots_saved.connect(_on_slots_saved)
 	_panel.slot_deleted.connect(_on_slot_deleted)
+	_panel.slot_renamed.connect(_on_slot_renamed)
 	_panel.trait_created.connect(_on_trait_created)
 	_panel.trait_deleted.connect(_on_trait_deleted)
 	_panel.trait_modified.connect(_on_trait_modified)
@@ -461,6 +462,24 @@ func _on_slot_updated(slot_id: String, x: float, y: float) -> void:
 			props["x"] = x
 			props["y"] = y
 			n["properties"] = props
+			break
+	await _save_graph()
+	_parse_layouts()
+	_apply_active_layout()
+
+
+## Only ever called after ControllerPanel's own inline rename editor — see
+## _build_slot_name_row there. The Slot node's own "name" field, not a
+## property — same field SlotVisual's name label and the sub-labels
+## displaying "card name in slot" both read from.
+func _on_slot_renamed(slot_id: String, name: String) -> void:
+	var n: String = name.strip_edges()
+	if n == "":
+		return
+	var nodes: Array = _graph.get("nodes", [])
+	for node in nodes:
+		if str(node.get("id", "")) == slot_id:
+			node["name"] = n
 			break
 	await _save_graph()
 	_parse_layouts()

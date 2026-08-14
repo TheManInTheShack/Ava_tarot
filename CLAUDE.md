@@ -187,11 +187,27 @@ piece of new drawing code from the earlier batch nobody's looked at yet.
   is now a grandchild (`CardWorld -> _world -> SlotVisual -> CardNode`),
   so the modify-link line math switched from `_world`-local position math
   to composed global transforms, which stays correct regardless of nesting.
-  **Entirely unverified interactively** — this is pure rendering code
-  (glow/halo geometry, texture loading, z-order swap) with genuinely zero
-  eyes on it yet, more than anything else shipped this session. The 200/
-  210/224px radii are a reasoned guess from card geometry, not a tuned
-  visual choice.
+  **First live look, same day**: the glow was liked but too subtle once
+  cards are in place — since the cards themselves are fully opaque, only
+  the ring *outside* the card edges was ever visible at all, and 200px
+  only gave that ring ~20-60px of width. Bumped substantially (glow 200→
+  320px, halo 210/224→340/360px) plus a gentler falloff exponent (2.0→
+  1.4, `GLOW_FALLOFF_EXPONENT`) so it reads as extending further out, not
+  just a bigger version of the same steep near-center falloff. Still a
+  reasoned-not-tuned guess — texture loading and the z-order swap remain
+  genuinely unverified.
+- **Layout editor rearranged** (2026-08-14, same-day follow-up): Save
+  Layout moved off the top Modify button (which now only ever enters mod
+  mode) down to the bottom, next to Delete Layout — both are "I'm done
+  with this layout" gestures. Order (V#/H#) and Position (X/Y) fields
+  split into two fixed-width columns (`ORDER_BLOCK_WIDTH`/
+  `POSITION_BLOCK_WIDTH`, deliberately conservative — 280px combined
+  against the panel's real ~290px budget, not cutting it as close as it
+  looks like it could) with a header row ("Order" | "Position") shown once
+  above the whole slot list rather than repeated per row. New **Rename**
+  button next to Delete on the slot's name line — reveals an inline
+  LineEdit + Save/Cancel in place, same reveal pattern as Traits' Modify
+  editor; only one slot can be mid-rename at a time.
 - Tap-to-flip: controller can flip any of its own cards directly; client can
   flip only a card the controller has currently granted the `flip` action on
 - Live ACL: per-layer (not per-slot) visible/actions toggles in the Client
