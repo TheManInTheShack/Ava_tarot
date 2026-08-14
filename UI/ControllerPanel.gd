@@ -231,8 +231,14 @@ func _build_layout_section() -> void:
 	add_slot_btn.pressed.connect(func() -> void:
 		var n: String = _slot_new_name.text.strip_edges()
 		if n != "":
-			slot_added.emit(n, _slot_new_x.value, _slot_new_y.value)
+			var pos: Vector2 = _find_clear_slot_position(Vector2(_slot_new_x.value, _slot_new_y.value))
+			slot_added.emit(n, pos.x, pos.y)
 			_slot_new_name.text = ""
+			# Reflects where it actually landed, and means adding several
+			# slots in a row without touching x/y keeps nudging rightward
+			# from the last one instead of re-colliding with it every time.
+			_slot_new_x.value = pos.x
+			_slot_new_y.value = pos.y
 	)
 	add_row.add_child(add_slot_btn)
 	_layout_mod_group.add_child(add_row)
@@ -324,6 +330,32 @@ func _make_spin_box() -> SpinBox:
 	sb.step = 1
 	sb.custom_minimum_size = Vector2(80, 0)
 	return sb
+
+
+## Nudges rightward by a full slot-width step (card + collision margin)
+## until clear of every existing slot in the active layout, so adding
+## several slots in a row without touching the x/y fields doesn't stack
+## them all on top of each other — same collision rule CardWorld's drag
+## snap-back uses (CardNode.slot_collision_rect), so the two never disagree
+## about what counts as too close.
+func _find_clear_slot_position(start: Vector2) -> Vector2:
+	var step := CardNode.CARD_SIZE.x + CardNode.SLOT_MARGIN_X * 2.0
+	var pos := start
+	var guard := 0
+	while _overlaps_existing_slot(pos) and guard < 100:
+		pos.x += step
+		guard += 1
+	return pos
+
+
+func _overlaps_existing_slot(pos: Vector2) -> bool:
+	var rect := CardNode.slot_collision_rect(pos)
+	for slot_id in _slots_cache.keys():
+		var g: Dictionary = _slots_cache[slot_id]
+		var other_rect := CardNode.slot_collision_rect(Vector2(g.get("x", 0.0), g.get("y", 0.0)))
+		if rect.intersects(other_rect):
+			return true
+	return false
 
 
 const NEW_LAYOUT_SENTINEL := "__new_layout__"

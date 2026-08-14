@@ -13,6 +13,21 @@ signal context_requested(slot_id: String, layer: String)
 
 const CARD_SIZE := Vector2(160, 280)
 
+## Shared with anything that needs to know "does a slot at this position
+## collide with another one" — CardWorld's drag snap-back and
+## ControllerPanel's Add Slot nudge both call slot_collision_rect() rather
+## than each keeping their own copy of these margins, so the two can never
+## quietly disagree about what counts as too close.
+const SLOT_MARGIN_X := 10.0   # horizontal breathing room between neighboring slots
+const SLOT_MARGIN_TOP := 30.0  # extra room above, for the slot-name label drawn there
+
+
+static func slot_collision_rect(pos: Vector2) -> Rect2:
+	return Rect2(
+		pos.x - SLOT_MARGIN_X, pos.y - SLOT_MARGIN_TOP,
+		CARD_SIZE.x + SLOT_MARGIN_X * 2.0, CARD_SIZE.y + SLOT_MARGIN_TOP,
+	)
+
 var slot_id: String = ""
 var layer: String = "vertical"       # "vertical" (primary), "horizontal" (crossing/modifier), or
                                       # "loose" (untethered — slot_id holds deck_card_id instead

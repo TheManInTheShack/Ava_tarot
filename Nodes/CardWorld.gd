@@ -19,8 +19,6 @@ signal slot_drag_ended(slot_id: String, x: float, y: float)
 
 const LAYERS := ["vertical", "horizontal"]
 const DRAG_THRESHOLD := 6.0
-const SLOT_MARGIN_X := 10.0   # horizontal breathing room a dragged slot must keep from its neighbors
-const SLOT_MARGIN_TOP := 30.0  # extra room above, for the slot-name label drawn there
 
 var _cards: Dictionary = {}          # "slot_id:layer" -> CardNode
 var _slot_geometry: Dictionary = {}  # slot_id -> {"name", "x", "y"} — set via set_slots()
@@ -181,20 +179,16 @@ func _end_slot_drag() -> void:
 	slot_drag_ended.emit(slot_id, marker.position.x, marker.position.y)
 
 
-func _slot_collision_rect(pos: Vector2) -> Rect2:
-	return Rect2(
-		pos.x - SLOT_MARGIN_X, pos.y - SLOT_MARGIN_TOP,
-		CardNode.CARD_SIZE.x + SLOT_MARGIN_X * 2.0, CardNode.CARD_SIZE.y + SLOT_MARGIN_TOP,
-	)
-
-
+## Collision margins live on CardNode (slot_collision_rect) — shared with
+## ControllerPanel's Add Slot nudge, so drag snap-back and placement-time
+## nudging can never disagree about what counts as too close.
 func _overlaps_others(slot_id: String, pos: Vector2) -> bool:
-	var rect := _slot_collision_rect(pos)
+	var rect := CardNode.slot_collision_rect(pos)
 	for other_id in _slot_geometry.keys():
 		if other_id == slot_id:
 			continue
 		var g: Dictionary = _slot_geometry[other_id]
-		var other_rect := _slot_collision_rect(Vector2(g.get("x", 0.0), g.get("y", 0.0)))
+		var other_rect := CardNode.slot_collision_rect(Vector2(g.get("x", 0.0), g.get("y", 0.0)))
 		if rect.intersects(other_rect):
 			return true
 	return false
