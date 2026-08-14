@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.10.0"
+const VERSION := "0.11.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -252,14 +252,31 @@ func _parse_layouts() -> void:
 			continue
 		var props: Dictionary = node.get("properties", {})
 		var layers: Dictionary = layer_ids.get(slot_id, {})
+		var vertical_id: String = layers.get("vertical", "")
+		var horizontal_id: String = layers.get("horizontal", "")
 		_slots[slot_id] = {
 			"name": node.get("name", slot_id),
 			"x": float(props.get("x", 0.0)),
 			"y": float(props.get("y", 0.0)),
 			"layout_id": slot_layout[slot_id],
-			"vertical_id": layers.get("vertical", ""),
-			"horizontal_id": layers.get("horizontal", ""),
+			"vertical_id": vertical_id,
+			"horizontal_id": horizontal_id,
+			"vertical_deal_order": _layer_deal_order(node_by_id, vertical_id),
+			"horizontal_deal_order": _layer_deal_order(node_by_id, horizontal_id),
 		}
+
+
+## deal_order lives as a plain property on the Vertical/Horizontal layer
+## node itself, not the Slot — a slot's two layers need independently
+## orderable positions in the deal sequence (e.g. slot1-V, slot2-V, slot1-H),
+## not just "this slot comes before that one."
+func _layer_deal_order(node_by_id: Dictionary, layer_id: String) -> int:
+	if layer_id == "":
+		return 0
+	var layer_node = node_by_id.get(layer_id)
+	if layer_node == null:
+		return 0
+	return int(layer_node.get("properties", {}).get("deal_order", 0))
 
 
 func _slots_for_layout(layout_id: String) -> Dictionary:
@@ -277,6 +294,22 @@ func _apply_active_layout() -> void:
 	_world.set_slots(active_slots)
 
 
+## Tells the Deck section's "Deal to Slot" picker which layers are currently
+## occupied, so it can never offer one that's already filled. Called from
+## every place that changes fill status: dealing, and _reset_table() (which
+## already covers Reset/End Reading/Record Scenario/layout switch — see its
+## own callers) and _on_slot_deleted() (a card can vanish along with its slot).
+func _refresh_deck_slot_availability() -> void:
+	var filled: Dictionary = {}
+	var cards: Dictionary = _state.get("cards", {})
+	for slot_id in cards.keys():
+		var slot: Dictionary = cards[slot_id]
+		for layer in ["vertical", "horizontal"]:
+			if slot.get(layer) != null:
+				filled["%s:%s" % [slot_id, layer]] = true
+	_panel.set_deck_fill_state(filled)
+
+
 ## Clears whatever's currently dealt — a different layout's slot ids don't
 ## match the new one's, so leftover cards would otherwise render collapsed
 ## at the origin instead of just vanishing. Used on layout creation
@@ -289,6 +322,7 @@ func _reset_table() -> void:
 	_world.set_loose(_state["loose"])
 	ApiClient.send_ws({"type": "state", "payload": _state})
 	ApiClient.send_ws({"type": "acl", "payload": _acl})
+	_refresh_deck_slot_availability()
 
 
 func _save_graph() -> void:
@@ -320,15 +354,35 @@ func _create_slot_with_layers(layout_id: String, name: String, x: float, y: floa
 	nodes.append({"id": slot_id, "type": "Slot", "name": name, "properties": {"x": x, "y": y}})
 	edges.append({"id": _next_id(), "from": layout_id, "to": slot_id, "type": "HAS_SLOT", "properties": {}})
 
+	# Sensible default (vertical then horizontal, after everything that
+	# already exists) — fully overridable afterward via the Layout editor's
+	# V#/H# fields. Global max rather than scoped to this layout: simpler,
+	# and correctness only ever depends on relative order *within* a layout
+	# (_next_deal_target() already scopes there), so a big-looking number is
+	# harmless. Scoping to _slots_for_layout() instead would under-count
+	# during _bootstrap_default_layout()'s three sequential calls, since
+	# _slots isn't re-parsed between them.
+	var next_order := _next_deal_order()
 	for layer_kind in ["Vertical", "Horizontal"]:
 		var layer_id := _next_id()
 		var layer_name := "%s-%s-%s" % [layout_id, name.to_lower().replace(" ", "-"), layer_kind.to_lower()]
-		nodes.append({"id": layer_id, "type": layer_kind, "name": layer_name, "properties": {}})
+		nodes.append({"id": layer_id, "type": layer_kind, "name": layer_name, "properties": {"deal_order": next_order}})
 		edges.append({"id": _next_id(), "from": slot_id, "to": layer_id, "type": "HAS_LAYER", "properties": {}})
+		next_order += 1
 
 	_graph["nodes"] = nodes
 	_graph["edges"] = edges
 	return slot_id
+
+
+func _next_deal_order() -> int:
+	var max_order := 0
+	for n in _graph.get("nodes", []):
+		if n.get("type", "") == "Vertical" or n.get("type", "") == "Horizontal":
+			var order: int = int(n.get("properties", {}).get("deal_order", 0))
+			if order > max_order:
+				max_order = order
+	return max_order + 1
 
 
 ## Reading-Model.md: "If cards were already placed when a mid-session Layout
@@ -417,6 +471,9 @@ func _on_slot_updated(slot_id: String, x: float, y: float) -> void:
 ## row's current x/y in one graph write, instead of the old one-save-per-row
 ## button. Same per-node update as _on_slot_updated, just looped and saved
 ## once at the end rather than once per slot.
+## Position (x/y) lives on the Slot node; deal_order lives on the Slot's own
+## Vertical/Horizontal layer nodes (see _create_slot_with_layers) — two
+## separate node lookups per update, not one.
 func _on_slots_saved(updates: Array) -> void:
 	var nodes: Array = _graph.get("nodes", [])
 	for u in updates:
@@ -428,9 +485,23 @@ func _on_slots_saved(updates: Array) -> void:
 				props["y"] = u.get("y", 0.0)
 				n["properties"] = props
 				break
+		var info: Dictionary = _slots.get(slot_id, {})
+		_set_layer_deal_order(nodes, info.get("vertical_id", ""), u.get("v_order", 0))
+		_set_layer_deal_order(nodes, info.get("horizontal_id", ""), u.get("h_order", 0))
 	await _save_graph()
 	_parse_layouts()
 	_apply_active_layout()
+
+
+func _set_layer_deal_order(nodes: Array, layer_id: String, order) -> void:
+	if layer_id == "":
+		return
+	for n in nodes:
+		if str(n.get("id", "")) == layer_id:
+			var props: Dictionary = n.get("properties", {})
+			props["deal_order"] = order
+			n["properties"] = props
+			return
 
 
 ## Only ever called after ControllerPanel's own delete-confirmation dialog —
@@ -460,6 +531,7 @@ func _on_slot_deleted(slot_id: String) -> void:
 		_acl.erase(slot_id)
 		ApiClient.send_ws({"type": "state", "payload": _state})
 		ApiClient.send_ws({"type": "acl", "payload": _acl})
+		_refresh_deck_slot_availability()
 
 	_apply_active_layout()
 
@@ -814,23 +886,40 @@ func _deal_into(slot_id: String, layer: String) -> void:
 	_state["cards"] = cards
 	_world.apply_state(cards)
 	ApiClient.send_ws({"type": "state", "payload": _state})
+	_refresh_deck_slot_availability()
 
 
-## Deal-order sequence (Reading-Model.md: "a structural property set when the
-## layout is designed") is derived from slot creation order (_next_id()'s
-## counter, so slot ids sort numerically) rather than a separate editable
-## field — simplest structural property that's still stable per layout.
+## Deal-order sequence (Reading-Model.md: "a structural property set when
+## the layout is designed") is a per-layer "deal_order" property, editable
+## in the Layout editor's V#/H# fields — not slot-creation order. Lets a
+## slot's own two layers land anywhere relative to each other in the
+## sequence (e.g. slot1-V, slot2-V, slot1-H), not just adjacent.
+##
+## A horizontal layer only becomes a candidate once its own vertical is
+## already filled — if someone sets a horizontal's order lower than its own
+## vertical's (asking for something vertical-before-horizontal physically
+## can't allow), this self-corrects by skipping it until it's actually
+## fillable, rather than handing _deal_into() a target it would just reject.
 func _next_deal_target() -> Dictionary:
-	var slot_ids: Array = _slots_for_layout(_active_layout_id).keys()
-	slot_ids.sort_custom(func(a, b): return int(a) < int(b))
+	var slots: Dictionary = _slots_for_layout(_active_layout_id)
 	var cards: Dictionary = _state.get("cards", {})
-	for slot_id in slot_ids:
-		var slot: Dictionary = cards.get(slot_id, {})
-		if slot.get("vertical") == null:
-			return {"slot_id": slot_id, "layer": "vertical"}
-		if slot.get("horizontal") == null:
-			return {"slot_id": slot_id, "layer": "horizontal"}
-	return {}
+	var candidates: Array = []
+	for slot_id in slots.keys():
+		var info: Dictionary = slots[slot_id]
+		var slot_cards: Dictionary = cards.get(slot_id, {})
+		var vertical_filled: bool = slot_cards.get("vertical") != null
+		if not vertical_filled:
+			candidates.append({"slot_id": slot_id, "layer": "vertical", "order": info.get("vertical_deal_order", 0)})
+		if vertical_filled and slot_cards.get("horizontal") == null:
+			candidates.append({"slot_id": slot_id, "layer": "horizontal", "order": info.get("horizontal_deal_order", 0)})
+	if candidates.is_empty():
+		return {}
+	candidates.sort_custom(func(a, b):
+		if a["order"] != b["order"]:
+			return a["order"] < b["order"]
+		return int(a["slot_id"]) < int(b["slot_id"])
+	)
+	return {"slot_id": candidates[0]["slot_id"], "layer": candidates[0]["layer"]}
 
 
 func _on_deal_next_pressed() -> void:

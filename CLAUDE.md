@@ -139,6 +139,24 @@ piece of new drawing code from the earlier batch nobody's looked at yet.
   Layout / Traits (was Layout-first, always-expanded).
 - Removed the per-item separator lines between slot rows and Client Access
   rows added in the layout-editor rework — they weren't earning their keep.
+- **Deal to Slot only ever offers empty layers** (2026-08-14): filled ones
+  drop out of the picker entirely instead of staying pickable and getting
+  rejected by `_deal_into()`. Selection always lands on whatever's first in
+  the filtered list, so dealing to it "advances" to the next open one for
+  free — no separate advance-the-selection logic needed. Button reads "No
+  unfilled slots" and disables itself once the layout is full.
+- **Deal order is a real, editable per-layer field** (2026-08-14): a
+  `deal_order` property lives on each Vertical/Horizontal layer node
+  (`_create_slot_with_layers`, `_next_deal_order()` auto-assigns a sensible
+  default), not derived from slot-creation order anymore. Editable via new
+  V#/H# fields in the Layout editor's slot rows, committed together with
+  x/y through the same "Save Layout" batch. Deliberately per-*layer*, not
+  per-slot — a slot's own Vertical and Horizontal can land anywhere
+  relative to each other in the sequence (e.g. slot1-V, slot2-V, slot1-H),
+  which a single per-slot order number couldn't express.
+  `_next_deal_target()` only offers a Horizontal layer once its own
+  Vertical is filled, so an inconsistent order (H before its own V) never
+  gets Deal Next stuck — it just skips that candidate until it's legal.
 - Tap-to-flip: controller can flip any of its own cards directly; client can
   flip only a card the controller has currently granted the `flip` action on
 - Live ACL: per-layer (not per-slot) visible/actions toggles in the Client

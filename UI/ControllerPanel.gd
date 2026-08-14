@@ -71,6 +71,8 @@ var _slots_cache: Dictionary = {}   # most recent set_slots() call, for menu lab
 var _deck_slot_menu: MenuButton
 var _deck_slot_options: Array = []  # [{"slot_id","layer"}], parallel to popup item ids
 var _deck_slot_selected_index: int = -1
+var _deck_fill_state: Dictionary = {}  # "slot_id:layer" -> true for currently-occupied layers
+var _deal_to_slot_btn: Button
 var _traits_cache: Dictionary = {}   # trait_id -> {"name","note"}, most recent set_traits() call
 var _assigned_traits_form: VBoxContainer
 var _traits_focus_label: Label
@@ -294,15 +296,21 @@ func set_layout_mod_mode(on: bool) -> void:
 
 
 ## The Modify button becomes "Save Layout" while in mod mode (see above) —
-## clicking it then commits every slot row's current x/y in one batch
-## (there are no more per-row Save buttons) and exits mod mode. Dragging a
-## slot on the table still commits immediately on drop, same as before;
-## this is specifically for the numeric-field editing path.
+## clicking it then commits every slot row's current x/y/deal-order in one
+## batch (there are no more per-row Save buttons) and exits mod mode.
+## Dragging a slot on the table still commits position immediately on drop,
+## same as before; this is specifically for the numeric-field editing path.
 func _commit_and_exit_layout_mod_mode() -> void:
 	var updates: Array = []
 	for slot_id in _slot_row_boxes.keys():
 		var boxes: Dictionary = _slot_row_boxes[slot_id]
-		updates.append({"slot_id": slot_id, "x": boxes["x"].value, "y": boxes["y"].value})
+		updates.append({
+			"slot_id": slot_id,
+			"x": boxes["x"].value,
+			"y": boxes["y"].value,
+			"v_order": boxes["v_order"].value,
+			"h_order": boxes["h_order"].value,
+		})
 	if not updates.is_empty():
 		slots_saved.emit(updates)
 	set_layout_mod_mode(false)
@@ -354,6 +362,19 @@ func _make_spin_box() -> SpinBox:
 	sb.max_value = 2000
 	sb.step = 1
 	sb.custom_minimum_size = Vector2(80, 0)
+	return sb
+
+
+## Narrower than _make_spin_box()'s position fields — deal order is a small
+## relative rank (1, 2, 3...), not a pixel coordinate, and the row it shares
+## with the Delete button doesn't have room for two 80px fields on top of
+## that (see set_slots()'s own note on the width budget).
+func _make_order_spin_box() -> SpinBox:
+	var sb := SpinBox.new()
+	sb.min_value = 0
+	sb.max_value = 999
+	sb.step = 1
+	sb.custom_minimum_size = Vector2(50, 0)
 	return sb
 
 
@@ -459,15 +480,34 @@ func set_slots(slots: Dictionary) -> void:
 		var y_box := _make_spin_box()
 		y_box.value = info.get("y", 0.0)
 		pos_row.add_child(y_box)
-		_slot_row_boxes[slot_id] = {"x": x_box, "y": y_box}
+		entry.add_child(pos_row)
+
+		# Deal order: a per-LAYER rank, not per-slot — a slot's own Vertical
+		# and Horizontal can land anywhere relative to each other in the
+		# sequence (e.g. slot1-V=1, slot2-V=2, slot1-H=3), so this needs two
+		# independent fields, not one shared with the slot. Narrower than
+		# x/y (_make_order_spin_box) so this row — now also carrying Delete —
+		# stays inside the panel's real width budget; see set_slots()'s own
+		# note above about why name/position/order/delete are split across
+		# separate rows instead of one wide one.
+		var order_row := HBoxContainer.new()
+		var v_order_box := _make_order_spin_box()
+		v_order_box.value = info.get("vertical_deal_order", 0)
+		v_order_box.tooltip_text = "Vertical deal order"
+		order_row.add_child(v_order_box)
+		var h_order_box := _make_order_spin_box()
+		h_order_box.value = info.get("horizontal_deal_order", 0)
+		h_order_box.tooltip_text = "Horizontal deal order"
+		order_row.add_child(h_order_box)
+		_slot_row_boxes[slot_id] = {"x": x_box, "y": y_box, "v_order": v_order_box, "h_order": h_order_box}
 
 		var del_btn := Button.new()
 		del_btn.text = "Delete"
 		del_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		var slot_name: String = info.get("name", slot_id)
 		del_btn.pressed.connect(func() -> void: _confirm_delete_slot(slot_id, slot_name))
-		pos_row.add_child(del_btn)
-		entry.add_child(pos_row)
+		order_row.add_child(del_btn)
+		entry.add_child(order_row)
 
 		_slot_rows_form.add_child(entry)
 
@@ -606,15 +646,15 @@ func _build_deck_section() -> void:
 	_deck_slot_menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_deck_slot_menu.get_popup().id_pressed.connect(_on_deck_slot_menu_id_pressed)
 	deal_slot_row.add_child(_deck_slot_menu)
-	var deal_to_slot_btn := Button.new()
-	deal_to_slot_btn.text = "Deal to Slot"
-	deal_to_slot_btn.pressed.connect(func() -> void:
+	_deal_to_slot_btn = Button.new()
+	_deal_to_slot_btn.text = "Deal to Slot"
+	_deal_to_slot_btn.pressed.connect(func() -> void:
 		if _deck_slot_selected_index < 0 or _deck_slot_selected_index >= _deck_slot_options.size():
 			return
 		var opt: Dictionary = _deck_slot_options[_deck_slot_selected_index]
 		deal_to_slot_pressed.emit(opt["slot_id"], opt["layer"])
 	)
-	deal_slot_row.add_child(deal_to_slot_btn)
+	deal_slot_row.add_child(_deal_to_slot_btn)
 	form.add_child(deal_slot_row)
 
 	var deal_loose_btn := Button.new()
@@ -630,26 +670,44 @@ func _deck_slot_label(opt: Dictionary) -> String:
 	return "%s — %s" % [slot_name, LAYER_LABELS.get(opt["layer"], opt["layer"])]
 
 
+## Only ever lists layers that are currently empty — filled ones drop out
+## entirely rather than staying pickable and getting rejected by Main.gd's
+## _deal_into() ("That layer is already filled"). Since the current
+## selection always lands on whatever's first in this filtered list, dealing
+## to the selected slot naturally "advances" to the next open one on the
+## next refresh — no separate advance-the-selection logic needed.
 func _refresh_deck_slot_menu(slots: Dictionary) -> void:
 	_deck_slot_options.clear()
 	var popup := _deck_slot_menu.get_popup()
 	popup.clear()
 	for slot_id in slots.keys():
 		for layer in ["vertical", "horizontal"]:
+			if _deck_fill_state.has("%s:%s" % [slot_id, layer]):
+				continue
 			var opt := {"slot_id": slot_id, "layer": layer}
 			popup.add_item(_deck_slot_label(opt), _deck_slot_options.size())
 			_deck_slot_options.append(opt)
 	if _deck_slot_options.is_empty():
-		_deck_slot_menu.text = "No slots"
+		_deck_slot_menu.text = "No unfilled slots"
 		_deck_slot_selected_index = -1
 	else:
 		_deck_slot_selected_index = 0
 		_deck_slot_menu.text = _deck_slot_label(_deck_slot_options[0])
+	_deal_to_slot_btn.disabled = _deck_slot_options.is_empty()
 
 
 func _on_deck_slot_menu_id_pressed(id: int) -> void:
 	_deck_slot_selected_index = id
 	_deck_slot_menu.text = _deck_slot_label(_deck_slot_options[id])
+
+
+## filled: {"slot_id:layer": true} for every currently-occupied layer in the
+## active layout — Main.gd calls this after anything that could change
+## which layers are filled (dealing, Reset, End Reading/Record Scenario,
+## a layout switch, deleting a slot that had a card on it).
+func set_deck_fill_state(filled: Dictionary) -> void:
+	_deck_fill_state = filled
+	_refresh_deck_slot_menu(_slots_cache)
 
 
 ## State-independent (per Reading-Model.md), two sub-groups per live
