@@ -41,12 +41,42 @@ var interactive: bool = false        # whether a tap currently does anything
 static var back_texture: Texture2D = null
 var front_texture: Texture2D = null
 
+## Shared across every CardNode — 78 cards, no reason to load the same PNG
+## twice for two instances of the same card_id (e.g. a slotted copy and a
+## loose one can't coexist, but a fresh deal after Reset reuses card_ids).
+static var _texture_cache: Dictionary = {}  # image filename -> Texture2D
+
 
 func _ready() -> void:
 	custom_minimum_size = CARD_SIZE
 	size = CARD_SIZE
 	pivot_offset = CARD_SIZE / 2.0
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	if back_texture == null:
+		back_texture = _load_texture("card_back_default.png")
+
+
+## image_filename comes straight from Data/cards.json's "image" field
+## (Main.gd's _new_card_layer()) — empty for a card whose art isn't in
+## Assets/Images/ yet, in which case _draw() already falls back to the
+## name-text placeholder.
+func set_image(image_filename: String) -> void:
+	front_texture = _load_texture(image_filename)
+	queue_redraw()
+
+
+static func _load_texture(image_filename: String) -> Texture2D:
+	if image_filename == "":
+		return null
+	if _texture_cache.has(image_filename):
+		return _texture_cache[image_filename]
+	var path := "res://Assets/Images/%s" % image_filename
+	if not ResourceLoader.exists(path):
+		_texture_cache[image_filename] = null
+		return null
+	var tex: Texture2D = load(path)
+	_texture_cache[image_filename] = tex
+	return tex
 
 
 func _draw() -> void:

@@ -157,6 +157,41 @@ piece of new drawing code from the earlier batch nobody's looked at yet.
   `_next_deal_target()` only offers a Horizontal layer once its own
   Vertical is filled, so an inconsistent order (H before its own V) never
   gets Deal Next stuck — it just skips that candidate until it's legal.
+- **Slot objects, first pass** (2026-08-14, `Nodes/SlotVisual.gd` — new
+  file): a slot's name label, both card layers, and a name sub-label under
+  each are now children of one node per slot instead of three independently
+  drifting pieces (the name label used to be a bare sibling Label,
+  repositioned only when `set_slots()` fully reran — which is why it used
+  to snap into place after a drag/Save Layout instead of following it
+  live; now moving the SlotVisual moves everything with it). Glow (radial,
+  white by default, ~200px fade radius past the crossing pair's ~280×280
+  footprint) and a halo ring (alpha 0 — nothing drives it yet, hook only)
+  draw directly in the node's own `_draw()`, which puts them behind every
+  child for free — no manual z-ordering. Both are `draw_circle`/`draw_arc`
+  primitives deliberately, not `GradientTexture2D` — its exact fill API
+  isn't grounded against any existing code in this repo.
+  **Real card art now loads** (`CardNode.set_image()`, `Assets/Images/`,
+  keyed off `Data/cards.json`'s `image` field — verified all 78 resolve to
+  a real file before shipping this) — falls back to the name-text
+  placeholder exactly as before when a texture can't load. Orientation
+  needed no new code: the existing rotation system already flips a
+  reversed card's whole render upside-down. A new sub-label under each
+  layer shows what's placed there, `(inv)` suffix when reversed — **gated
+  on `face_up`**, deliberately: the label must not leak a face-down card's
+  identity to a client who can see a card is *there* (ACL "visible") but
+  shouldn't know *what* it is yet. Tapping either card now also brings it
+  to the top of local z-order (pure render-order swap, no data change) —
+  default stack is Vertical behind, Horizontal in front ("closer to the
+  user"). `CardWorld.apply_state()`/`_find_card_node()`/
+  `_rebuild_modify_links()` all reworked around this — a slotted CardNode
+  is now a grandchild (`CardWorld -> _world -> SlotVisual -> CardNode`),
+  so the modify-link line math switched from `_world`-local position math
+  to composed global transforms, which stays correct regardless of nesting.
+  **Entirely unverified interactively** — this is pure rendering code
+  (glow/halo geometry, texture loading, z-order swap) with genuinely zero
+  eyes on it yet, more than anything else shipped this session. The 200/
+  210/224px radii are a reasoned guess from card geometry, not a tuned
+  visual choice.
 - Tap-to-flip: controller can flip any of its own cards directly; client can
   flip only a card the controller has currently granted the `flip` action on
 - Live ACL: per-layer (not per-slot) visible/actions toggles in the Client

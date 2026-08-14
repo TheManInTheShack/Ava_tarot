@@ -20,9 +20,8 @@ signal slot_drag_ended(slot_id: String, x: float, y: float)
 const LAYERS := ["vertical", "horizontal"]
 const DRAG_THRESHOLD := 6.0
 
-var _cards: Dictionary = {}          # "slot_id:layer" -> CardNode
 var _slot_geometry: Dictionary = {}  # slot_id -> {"name", "x", "y"} — set via set_slots()
-var _slot_labels: Dictionary = {}    # slot_id -> Label
+var _slot_visuals: Dictionary = {}   # slot_id -> SlotVisual — see Nodes/SlotVisual.gd
 var _world: Control
 var _loose_nodes: Dictionary = {}    # deck_card_id -> CardNode, set via set_loose()
 var _modify_links: Array = []        # [[Vector2 from, Vector2 to], ...], world-local, for _draw()
@@ -37,10 +36,6 @@ var _drag_grab_offset: Vector2 = Vector2.ZERO
 var _drag_orig_pos: Vector2 = Vector2.ZERO
 
 
-static func _key(slot_id: String, layer: String) -> String:
-	return "%s:%s" % [slot_id, layer]
-
-
 func _ready() -> void:
 	_world = Control.new()
 	_world.name = "World"
@@ -52,29 +47,29 @@ func _ready() -> void:
 ## slots: {slot_id: {"name": String, "x": float, "y": float}} — loaded from
 ## the active Layout's graph nodes (Main._apply_active_layout), replacing
 ## what used to be the hardcoded THREE_CARD_SLOTS/SLOT_LABELS consts.
+## Each slot is one SlotVisual (name label + both card layers + their name
+## sub-labels + glow/halo, all as one node) — moving *it* on drag/Save
+## Layout carries everything with it, unlike the old separate sibling Label
+## that only snapped into place on the next full rebuild.
 func set_slots(slots: Dictionary) -> void:
 	_slot_geometry = slots
-	for slot_id in _slot_labels.keys().duplicate():
+	for slot_id in _slot_visuals.keys().duplicate():
 		if not slots.has(slot_id):
-			_slot_labels[slot_id].queue_free()
-			_slot_labels.erase(slot_id)
+			_slot_visuals[slot_id].queue_free()
+			_slot_visuals.erase(slot_id)
 	for slot_id in slots.keys():
 		var info: Dictionary = slots[slot_id]
 		var pos := Vector2(info.get("x", 0.0), info.get("y", 0.0))
-		var label: Label = _slot_labels.get(slot_id)
-		if label == null:
-			label = Label.new()
-			label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
-			_world.add_child(label)
-			_slot_labels[slot_id] = label
-		label.text = info.get("name", "")
-		label.position = pos + Vector2(0, -26)
-	# Re-apply any already-placed cards so they follow updated positions.
-	for key in _cards.keys():
-		var node: CardNode = _cards[key]
-		if _slot_geometry.has(node.slot_id):
-			var g: Dictionary = _slot_geometry[node.slot_id]
-			node.position = Vector2(g.get("x", 0.0), g.get("y", 0.0))
+		var visual: SlotVisual = _slot_visuals.get(slot_id)
+		if visual == null:
+			visual = SlotVisual.new()
+			visual.slot_id = slot_id
+			visual.card_tapped.connect(func(layer: String) -> void: _on_card_tapped(slot_id, layer))
+			visual.card_context_requested.connect(func(layer: String) -> void: _on_card_context_requested(slot_id, layer))
+			_world.add_child(visual)
+			_slot_visuals[slot_id] = visual
+		visual.position = pos
+		visual.set_name_text(info.get("name", ""))
 	_rebuild_slot_markers()
 
 
@@ -202,44 +197,20 @@ func _overlaps_others(slot_id: String, pos: Vector2) -> bool:
 ## to both filter and mark which layers are currently tappable — layers are
 ## controlled independently, per Meta/Reading-Model.md.
 func apply_state(cards: Dictionary, acl: Dictionary = {}) -> void:
-	var seen: Dictionary = {}
-	for slot_id in cards.keys():
-		var slot_info: Dictionary = cards[slot_id]
+	for slot_id in _slot_visuals.keys():
+		var visual: SlotVisual = _slot_visuals[slot_id]
+		var slot_info: Dictionary = cards.get(slot_id, {})
 		var slot_acl: Dictionary = acl.get(slot_id, {})
 		for layer in LAYERS:
 			var info = slot_info.get(layer)
-			if info == null:
-				continue
 			var layer_acl: Dictionary = slot_acl.get(layer, {})
 			var visible_to_viewer: bool = acl.is_empty() or layer_acl.get("visible", false)
-			if not visible_to_viewer:
+			if info == null or not visible_to_viewer:
+				visual.set_layer(layer, null, false)
 				continue
-			var key := _key(slot_id, layer)
-			seen[key] = true
-
-			var node: CardNode = _cards.get(key)
-			if node == null:
-				node = CardNode.new()
-				node.slot_id = slot_id
-				node.layer = layer
-				var g: Dictionary = _slot_geometry.get(slot_id, {})
-				node.position = Vector2(g.get("x", 0.0), g.get("y", 0.0))
-				node.tapped.connect(_on_card_tapped)
-				node.context_requested.connect(_on_card_context_requested)
-				_world.add_child(node)
-				_cards[key] = node
-
-			node.deck_card_id = info.get("deck_card_id", "")
-			node.card_name = info.get("name", "")
-			node.set_face_up(info.get("face_up", false))
-			node.set_orientation(info.get("orientation", "upright"))
 			var can_act: Array = layer_acl.get("actions", [])
-			node.set_interactive(acl.is_empty() or can_act.size() > 0)
-
-	for key in _cards.keys().duplicate():
-		if not seen.has(key):
-			_cards[key].queue_free()
-			_cards.erase(key)
+			var interactive: bool = acl.is_empty() or can_act.size() > 0
+			visual.set_layer(layer, info, interactive)
 
 
 ## loose: {deck_card_id: {"name","face_up","orientation","x","y",
@@ -266,6 +237,7 @@ func set_loose(loose: Dictionary) -> void:
 		node.position = Vector2(info.get("x", 0.0), info.get("y", 0.0))
 		node.set_face_up(info.get("face_up", false))
 		node.set_orientation(info.get("orientation", "upright"))
+		node.set_image(info.get("image", ""))
 		node.set_interactive(true)
 
 	for card_id in _loose_nodes.keys().duplicate():
@@ -279,12 +251,15 @@ func set_loose(loose: Dictionary) -> void:
 
 ## Any card, slotted or loose, keyed by deck_card_id — the modifier
 ## mechanic's target isn't restricted to loose cards (Reading-Model.md:
-## "modify any other card already on the table").
+## "modify any other card already on the table"). A slotted card's CardNode
+## is now a grandchild (via its SlotVisual), so this delegates to each
+## visual's own lookup rather than scanning a flat dict directly.
 func _find_card_node(deck_card_id: String) -> CardNode:
 	if _loose_nodes.has(deck_card_id):
 		return _loose_nodes[deck_card_id]
-	for node in _cards.values():
-		if node.deck_card_id == deck_card_id:
+	for visual in _slot_visuals.values():
+		var node: CardNode = visual.get_card_node_for(deck_card_id)
+		if node != null:
 			return node
 	return null
 
@@ -294,8 +269,16 @@ func _find_card_node(deck_card_id: String) -> CardNode:
 ## target card is later repositioned by unrelated churn — acceptable
 ## first-pass staleness, not a correctness issue (the link itself is still
 ## correct at checkpoint time, only the drawn line could lag briefly).
+##
+## Uses each node's own get_global_transform() rather than
+## `_world.get_transform() * node.position` — a slotted card is now a
+## grandchild (CardWorld -> _world -> SlotVisual -> CardNode), so its
+## `.position` alone is relative to its SlotVisual, not to `_world`. Global
+## transforms compose correctly regardless of nesting depth; a loose card
+## (still a direct `_world` child) works the same way through this too.
 func _rebuild_modify_links(loose: Dictionary) -> void:
 	_modify_links.clear()
+	var to_local: Transform2D = get_global_transform().affine_inverse()
 	for card_id in loose.keys():
 		var target_id: String = loose[card_id].get("modifies_target", "")
 		if target_id == "":
@@ -306,8 +289,8 @@ func _rebuild_modify_links(loose: Dictionary) -> void:
 			continue
 		var center := CardNode.CARD_SIZE / 2.0
 		_modify_links.append([
-			_world.get_transform() * (from_node.position + center),
-			_world.get_transform() * (to_node.position + center),
+			to_local * (from_node.get_global_transform() * center),
+			to_local * (to_node.get_global_transform() * center),
 		])
 
 
