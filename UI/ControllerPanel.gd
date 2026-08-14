@@ -9,7 +9,11 @@ extends VBoxContainer
 signal start_pressed()
 signal record_pressed()
 signal end_pressed()
-signal deal_pressed()
+signal reset_pressed()
+signal reshuffle_pressed()
+signal unshuffle_pressed()
+signal deal_next_pressed()
+signal deal_to_slot_pressed(slot_id: String, layer: String)
 signal acl_changed(slot_id: String, layer: String, is_visible: bool, actions: Array)
 signal layout_selected(layout_id: String)
 signal layout_created(name: String)
@@ -43,6 +47,10 @@ var _clients: Array = []            # most recent set_clients() call
 var _selected_client_index: int = -1
 var _out_of_session_group: VBoxContainer
 var _in_session_group: VBoxContainer
+var _slots_cache: Dictionary = {}   # most recent set_slots() call, for menu labels
+var _deck_slot_menu: MenuButton
+var _deck_slot_options: Array = []  # [{"slot_id","layer"}], parallel to popup item ids
+var _deck_slot_selected_index: int = -1
 
 
 func _ready() -> void:
@@ -235,6 +243,7 @@ func set_layouts(layouts: Dictionary, active_id: String) -> void:
 ## layout's slots. Rebuilds both this section's editable rows and Client
 ## Access's per-layer rows, since they always change together.
 func set_slots(slots: Dictionary) -> void:
+	_slots_cache = slots
 	for c in _slot_rows_form.get_children():
 		c.queue_free()
 	for slot_id in slots.keys():
@@ -266,6 +275,7 @@ func set_slots(slots: Dictionary) -> void:
 		_slot_rows_form.add_child(row)
 
 	_refresh_cards_section(slots)
+	_refresh_deck_slot_menu(slots)
 
 
 ## Split per Meta/Reading-Model.md's controller panel structure: the client
@@ -353,13 +363,83 @@ func get_selected_client() -> Dictionary:
 	return _clients[_selected_client_index]
 
 
+## State-independent (per Reading-Model.md, works in or out of a session) —
+## Reset/Reshuffle/Unshuffle/Deal Next/Deal to Slot. Deal Loose isn't here
+## yet: it feeds directly into the drag-drop resolution logic that arrives
+## with Step 5, so there's nowhere useful to put a loose card until then.
 func _build_deck_section() -> void:
 	var form := VBoxContainer.new()
-	var deal_btn := Button.new()
-	deal_btn.text = "Deal Three-Card"
-	deal_btn.pressed.connect(func() -> void: deal_pressed.emit())
-	form.add_child(deal_btn)
+
+	var reset_btn := Button.new()
+	reset_btn.text = "Reset"
+	reset_btn.pressed.connect(func() -> void: reset_pressed.emit())
+	form.add_child(reset_btn)
+
+	var shuffle_row := HBoxContainer.new()
+	var reshuffle_btn := Button.new()
+	reshuffle_btn.text = "Reshuffle"
+	reshuffle_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	reshuffle_btn.pressed.connect(func() -> void: reshuffle_pressed.emit())
+	shuffle_row.add_child(reshuffle_btn)
+	var unshuffle_btn := Button.new()
+	unshuffle_btn.text = "Unshuffle"
+	unshuffle_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	unshuffle_btn.pressed.connect(func() -> void: unshuffle_pressed.emit())
+	shuffle_row.add_child(unshuffle_btn)
+	form.add_child(shuffle_row)
+
+	form.add_child(HSeparator.new())
+
+	var deal_next_btn := Button.new()
+	deal_next_btn.text = "Deal Next"
+	deal_next_btn.pressed.connect(func() -> void: deal_next_pressed.emit())
+	form.add_child(deal_next_btn)
+
+	var deal_slot_row := HBoxContainer.new()
+	_deck_slot_menu = MenuButton.new()
+	_deck_slot_menu.text = "No slots"
+	_deck_slot_menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_deck_slot_menu.get_popup().id_pressed.connect(_on_deck_slot_menu_id_pressed)
+	deal_slot_row.add_child(_deck_slot_menu)
+	var deal_to_slot_btn := Button.new()
+	deal_to_slot_btn.text = "Deal to Slot"
+	deal_to_slot_btn.pressed.connect(func() -> void:
+		if _deck_slot_selected_index < 0 or _deck_slot_selected_index >= _deck_slot_options.size():
+			return
+		var opt: Dictionary = _deck_slot_options[_deck_slot_selected_index]
+		deal_to_slot_pressed.emit(opt["slot_id"], opt["layer"])
+	)
+	deal_slot_row.add_child(deal_to_slot_btn)
+	form.add_child(deal_slot_row)
+
 	_make_rollup("Deck", _rollup_color(1), form)
+
+
+func _deck_slot_label(opt: Dictionary) -> String:
+	var slot_name: String = _slots_cache.get(opt["slot_id"], {}).get("name", opt["slot_id"])
+	return "%s — %s" % [slot_name, LAYER_LABELS.get(opt["layer"], opt["layer"])]
+
+
+func _refresh_deck_slot_menu(slots: Dictionary) -> void:
+	_deck_slot_options.clear()
+	var popup := _deck_slot_menu.get_popup()
+	popup.clear()
+	for slot_id in slots.keys():
+		for layer in ["vertical", "horizontal"]:
+			var opt := {"slot_id": slot_id, "layer": layer}
+			popup.add_item(_deck_slot_label(opt), _deck_slot_options.size())
+			_deck_slot_options.append(opt)
+	if _deck_slot_options.is_empty():
+		_deck_slot_menu.text = "No slots"
+		_deck_slot_selected_index = -1
+	else:
+		_deck_slot_selected_index = 0
+		_deck_slot_menu.text = _deck_slot_label(_deck_slot_options[0])
+
+
+func _on_deck_slot_menu_id_pressed(id: int) -> void:
+	_deck_slot_selected_index = id
+	_deck_slot_menu.text = _deck_slot_label(_deck_slot_options[id])
 
 
 const LAYER_LABELS := {"vertical": "Vertical", "horizontal": "Horizontal"}

@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.4.1"
+const VERSION := "0.5.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -40,6 +40,7 @@ var _slots: Dictionary = {}            # slot_id -> {"name","x","y","layout_id",
 var _active_layout_id: String = ""
 var _next_id_counter: int = 1          # shared node/edge id counter, seeded from the loaded graph
 var _graph_session_node_id: String = ""  # this session's Session graph node, set at Start Reading
+var _deck_order: Array = []            # undealt cards, standing order, top = index 0 — see Deck section
 
 
 func _ready() -> void:
@@ -51,6 +52,7 @@ func _ready() -> void:
 	add_child(_status_label)
 
 	_deck = _load_deck()
+	_deck_order = _canonical_deck_order()
 	_me = await ApiClient.get_me()
 	if is_instance_valid(_status_label):
 		_status_label.queue_free()
@@ -107,7 +109,11 @@ func _setup_controller() -> void:
 	_panel.start_pressed.connect(_on_start_pressed)
 	_panel.record_pressed.connect(_on_record_pressed)
 	_panel.end_pressed.connect(_on_end_pressed)
-	_panel.deal_pressed.connect(_on_deal_pressed)
+	_panel.reset_pressed.connect(_on_reset_pressed)
+	_panel.reshuffle_pressed.connect(_on_reshuffle_pressed)
+	_panel.unshuffle_pressed.connect(_on_unshuffle_pressed)
+	_panel.deal_next_pressed.connect(_on_deal_next_pressed)
+	_panel.deal_to_slot_pressed.connect(_on_deal_to_slot_pressed)
 	_panel.acl_changed.connect(_on_acl_changed)
 	_panel.layout_selected.connect(_on_layout_selected)
 	_panel.layout_created.connect(_on_layout_created)
@@ -450,30 +456,119 @@ func _on_record_pressed() -> void:
 	_panel.set_status("Scenario recorded — %s" % (client_display if client_display else client_username))
 
 
-func _on_deal_pressed() -> void:
-	var ids: Array = _deck.keys()
-	ids.shuffle()
-	var slot_ids: Array = _slots_for_layout(_active_layout_id).keys()
-	var cards := {}
-	var i := 0
-	for slot_id in slot_ids:
-		if i >= ids.size():
-			break
-		var card_id: String = ids[i]
-		i += 1
-		cards[slot_id] = {
-			"vertical": _new_card_layer(card_id),
-			"horizontal": null,
-		}
-	# Step-1-only stopgap: also deal a crossing card onto the second slot so
-	# the two-layer rendering can be verified before real Deck controls
-	# (Step 4) and drag-to-layer placement (Step 5) exist. Remove once "Deal
-	# to Slot"/"Deal Next" land — see Meta/Reading-Model.md.
-	if slot_ids.size() >= 2 and i < ids.size():
-		cards[slot_ids[1]]["horizontal"] = _new_card_layer(ids[i])
+# ── Deck (Step 4) ────────────────────────────────────────────────────────────
+# Reading-Model.md: dealing is state-independent (works in or out of session;
+# out-of-session dealing already produces zero graph writes for free, since
+# Record Scenario/End Reading — the only checkpoint writers — are gated to
+# in-session by ControllerPanel.set_in_session()). _deck_order holds only
+# undealt cards; already-dealt cards leave the pool until Reset returns them,
+# so Reshuffle/Unshuffle never conjure a duplicate of a card already on the
+# table.
+
+const SUIT_ORDER := ["Wands", "Cups", "Swords", "Pentacles"]
+
+
+func _canonical_deck_order() -> Array:
+	var majors := []
+	var by_suit: Dictionary = {}
+	for suit in SUIT_ORDER:
+		by_suit[suit] = []
+	for card_id in _deck.keys():
+		var info: Dictionary = _deck[card_id]
+		if info.get("arcana", "") == "Major":
+			majors.append(card_id)
+		else:
+			var suit: String = info.get("suit", "")
+			if by_suit.has(suit):
+				by_suit[suit].append(card_id)
+	majors.sort_custom(func(a, b): return int(_deck[a].get("number", 0)) < int(_deck[b].get("number", 0)))
+	var order: Array = majors.duplicate()
+	for suit in SUIT_ORDER:
+		var suit_cards: Array = by_suit[suit]
+		suit_cards.sort_custom(func(a, b): return int(_deck[a].get("number", 0)) < int(_deck[b].get("number", 0)))
+		order.append_array(suit_cards)
+	return order
+
+
+## Deals the deck's top card into a specific slot/layer — the shared landing
+## point for both Deal Next and Deal to Slot. Enforces the same
+## vertical-before-horizontal placement constraint as everywhere else.
+func _deal_into(slot_id: String, layer: String) -> void:
+	if not _slots.has(slot_id):
+		return
+	var cards: Dictionary = _state.get("cards", {})
+	var slot: Dictionary = cards.get(slot_id, {"vertical": null, "horizontal": null})
+	if slot.get(layer) != null:
+		_panel.set_status("That layer is already filled")
+		return
+	if layer == "horizontal" and slot.get("vertical") == null:
+		_panel.set_status("Vertical must be filled first")
+		return
+	if _deck_order.is_empty():
+		_panel.set_status("Deck is empty")
+		return
+	var card_id: String = _deck_order.pop_front()
+	slot[layer] = _new_card_layer(card_id)
+	cards[slot_id] = slot
 	_state["cards"] = cards
-	_world.apply_state(_state["cards"])
+	_world.apply_state(cards)
 	ApiClient.send_ws({"type": "state", "payload": _state})
+
+
+## Deal-order sequence (Reading-Model.md: "a structural property set when the
+## layout is designed") is derived from slot creation order (_next_id()'s
+## counter, so slot ids sort numerically) rather than a separate editable
+## field — simplest structural property that's still stable per layout.
+func _next_deal_target() -> Dictionary:
+	var slot_ids: Array = _slots_for_layout(_active_layout_id).keys()
+	slot_ids.sort_custom(func(a, b): return int(a) < int(b))
+	var cards: Dictionary = _state.get("cards", {})
+	for slot_id in slot_ids:
+		var slot: Dictionary = cards.get(slot_id, {})
+		if slot.get("vertical") == null:
+			return {"slot_id": slot_id, "layer": "vertical"}
+		if slot.get("horizontal") == null:
+			return {"slot_id": slot_id, "layer": "horizontal"}
+	return {}
+
+
+func _on_deal_next_pressed() -> void:
+	var target: Dictionary = _next_deal_target()
+	if target.is_empty():
+		_panel.set_status("Layout is full")
+		return
+	_deal_into(target["slot_id"], target["layer"])
+
+
+func _on_deal_to_slot_pressed(slot_id: String, layer: String) -> void:
+	_deal_into(slot_id, layer)
+
+
+## Returns every currently-tabled card to the pool before clearing — Reset is
+## the only action that grows _deck_order back, so testing a layout
+## repeatedly doesn't permanently deplete the deck.
+func _on_reset_pressed() -> void:
+	var cards: Dictionary = _state.get("cards", {})
+	for slot_id in cards.keys():
+		var slot: Dictionary = cards[slot_id]
+		for layer in ["vertical", "horizontal"]:
+			var info = slot.get(layer)
+			if info != null:
+				_deck_order.append(info.get("deck_card_id", ""))
+	_reset_table()
+
+
+func _on_reshuffle_pressed() -> void:
+	_deck_order.shuffle()
+	_panel.set_status("Deck reshuffled")
+
+
+func _on_unshuffle_pressed() -> void:
+	var remaining: Dictionary = {}
+	for card_id in _deck_order:
+		remaining[card_id] = true
+	_deck_order = _canonical_deck_order().filter(func(id): return remaining.has(id))
+	_panel.set_status("Deck restored to catalog order")
 
 
 func _new_card_layer(card_id: String) -> Dictionary:
