@@ -24,6 +24,8 @@ signal slot_added(name: String, x: float, y: float)
 signal slots_saved(updates: Array)  # [{"slot_id","x","y"}, ...] — Save Layout's batch commit
 signal slot_deleted(slot_id: String)
 signal slot_renamed(slot_id: String, name: String)
+signal slot_scale_preview(slot_id: String, scale: float)  # live, not persisted — see set_slots()
+signal slot_position_preview(slot_id: String, x: float, y: float)  # live, not persisted
 signal trait_created(name: String)
 signal trait_deleted(trait_id: String)
 signal trait_modified(trait_id: String, name: String, note: String)
@@ -560,16 +562,38 @@ func set_slots(slots: Dictionary) -> void:
 		var y_box := _make_spin_box()
 		y_box.value = info.get("y", 0.0)
 		xy_row.add_child(y_box)
+		# Live preview on the table as either field changes — found live
+		# ("the x/y changes should show live too") alongside the same ask
+		# for the size slider below. Doesn't persist anything; Save Layout
+		# still does that, same as every field here.
+		var emit_position_preview := func() -> void: slot_position_preview.emit(slot_id, x_box.value, y_box.value)
+		x_box.value_changed.connect(func(_v: float) -> void: emit_position_preview.call())
+		y_box.value_changed.connect(func(_v: float) -> void: emit_position_preview.call())
 		position_column.add_child(xy_row)
 
+		var size_row := HBoxContainer.new()
 		var size_slider := HSlider.new()
 		size_slider.min_value = 0.5
 		size_slider.max_value = 2.0
 		size_slider.step = 0.05
 		size_slider.value = info.get("scale", 1.0)
-		size_slider.custom_minimum_size = Vector2(POSITION_ROW_WIDTH, 0)
+		size_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		size_slider.tooltip_text = "Slot size"
-		position_column.add_child(size_slider)
+		size_row.add_child(size_slider)
+		var size_label := Label.new()
+		size_label.text = "%d%%" % int(round(size_slider.value * 100.0))
+		size_label.custom_minimum_size = Vector2(40, 0)
+		size_row.add_child(size_label)
+		# Live preview while dragging — found live: not previewing this one
+		# specifically read as broken ("I have to save the layout in order
+		# to see the results"). Doesn't persist anything; Save Layout still
+		# does that, same as every other field here.
+		size_slider.value_changed.connect(func(value: float) -> void:
+			size_label.text = "%d%%" % int(round(value * 100.0))
+			slot_scale_preview.emit(slot_id, value)
+		)
+		size_row.custom_minimum_size = Vector2(POSITION_ROW_WIDTH, 0)
+		position_column.add_child(size_row)
 		fields_row.add_child(position_column)
 
 		_slot_row_boxes[slot_id] = {

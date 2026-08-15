@@ -78,6 +78,31 @@ func set_slots(slots: Dictionary) -> void:
 	_rebuild_slot_markers()
 
 
+## Live preview only, while the size slider is being dragged — doesn't
+## touch _slot_geometry or persist anything. The next real set_slots()
+## call (Save Layout committing, or switching away without saving)
+## re-applies the authoritative scale from parsed graph data, which
+## naturally snaps an unsaved preview back to whatever's actually saved.
+func preview_slot_scale(slot_id: String, scale: float) -> void:
+	var visual: SlotVisual = _slot_visuals.get(slot_id)
+	if visual != null:
+		visual.scale = Vector2(scale, scale)
+
+
+## Live preview only, while the x/y fields are being edited — doesn't touch
+## _slot_geometry or persist anything, same rule as preview_slot_scale.
+## Also moves this slot's own drag marker (if mod mode is showing one) so
+## the two don't visibly drift apart from each other during the preview.
+func preview_slot_position(slot_id: String, x: float, y: float) -> void:
+	var pos := Vector2(x, y)
+	var visual: SlotVisual = _slot_visuals.get(slot_id)
+	if visual != null:
+		visual.position = pos
+	var marker: Control = _slot_markers.get(slot_id)
+	if marker != null and slot_id != _drag_slot_id:  # don't fight an active drag
+		marker.position = pos
+
+
 ## Shows/hides the draggable slot-position markers — only live while
 ## actually editing a Layout (ControllerPanel's "Modify" button), so no drag
 ## input runs at all during normal reading interactions.

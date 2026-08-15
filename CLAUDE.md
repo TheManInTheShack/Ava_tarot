@@ -26,7 +26,7 @@ consulting, but nothing there should be built on directly.
 
 ---
 
-## Current State (as of 2026-08-13)
+## Current State (as of 2026-08-14)
 
 **The 2026-08-08 baseline** (session start → deal → controller toggles
 visibility/flip → client sees it → checkpoint on End Reading) **was verified
@@ -215,9 +215,22 @@ piece of new drawing code from the earlier batch nobody's looked at yet.
   (`SlotVisual.pivot_offset`) rather than the slot's x/y origin, so
   resizing doesn't visibly shift the slot's table position — scales
   glow/halo/cards/labels together for free, no per-element scaling code
-  needed. Deliberately no live preview while dragging the slider (same
-  "nothing takes effect until Save Layout" rule as x/y and deal order) —
-  consistency over a fancier but riskier interaction.
+  needed. **Revised same day (0.13.1/0.13.2), per explicit feedback**
+  ("I have to save the layout in order to see the results" / "the x/changes
+  should show live too"): the slider and the X/Y fields now both preview
+  live, before Save Layout. `ControllerPanel` gained
+  `slot_scale_preview(slot_id, scale)` and
+  `slot_position_preview(slot_id, x, y)` signals, wired in `Main.gd` to two
+  new `CardWorld` methods, `preview_slot_scale()` and
+  `preview_slot_position()` — both touch only the live `SlotVisual`
+  (position/scale) and, for position, the mod-mode drag marker (skipped if
+  that slot is the one actively being dragged, so the two don't fight).
+  Neither writes to `_slot_geometry` or persists anything — the actual
+  commit still only happens on Save Layout, same as before. The slider row
+  also now shows a live `NN%` label next to it. Deal order (V#/H#) still
+  has no live preview — not asked for. None of this (slider drag, X/Y
+  live-preview, % label) is interactively verified — no browser access
+  this session; only confirmed via a clean `deploy_paratarot.bat` export.
 - Tap-to-flip: controller can flip any of its own cards directly; client can
   flip only a card the controller has currently granted the `flip` action on
 - Live ACL: per-layer (not per-slot) visible/actions toggles in the Client
