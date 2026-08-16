@@ -606,25 +606,26 @@ func _find_card_node(deck_card_id: String) -> CardNode:
 ## first-pass staleness, not a correctness issue (the link itself is still
 ## correct at checkpoint time, only the drawn line could lag briefly).
 ##
-## Uses each node's own get_global_transform() rather than
-## `_world.get_transform() * node.position` — a slotted card is now a
-## grandchild (CardWorld -> _world -> SlotVisual -> CardNode), so its
-## `.position` alone is relative to its SlotVisual, not to `_world`. Global
-## transforms compose correctly regardless of nesting depth; a loose card
-## (still a direct `_world` child) works the same way through this too.
+## Uses each node's own get_layer_transform() rather than plain
+## get_global_transform() — a slotted card is now a grandchild (CardWorld ->
+## _world -> SlotVisual -> CardNode), so its `.position` alone is relative to
+## its SlotVisual, not to `_world`; get_layer_transform() still composes
+## correctly regardless of nesting depth, same as get_global_transform()
+## would, but additionally drops the 180° `orientation == "reversed"` flip —
+## these anchors are about the physical edge of where a card structurally
+## sits in its slot, not which way up it happens to be drawn.
 ##
-## Endpoints are the modifying card's own bottom-center and the modified
-## card's own top-center, not each card's center — a line into the middle of
-## a slot's crossing pair can't tell you which of the two occupied cards it
-## actually targets (they share the same center point), while an edge-to-edge
-## line visibly terminates at one specific card. Each point is still taken in
-## that node's own local space before transforming, so a Horizontal target's
-## "top" is correct for its own 90°-rotated orientation, not the table's.
+## Endpoints are the modifying card's own physical bottom edge and the
+## modified card's own physical top edge (or, for a Horizontal target, the
+## physical LEFT edge — a Horizontal is a Vertical rotated 90° to cross it,
+## so its structural "near" edge is what the 90° crossing rotation turns
+## a plain top-center point into), not each card's center — a line into the
+## middle of a slot's crossing pair can't tell you which of the two occupied
+## cards it actually targets (they share the same center point), while an
+## edge-to-edge line visibly terminates at one specific card.
 func _rebuild_modify_links(loose: Dictionary) -> void:
 	_modify_links.clear()
 	var to_local: Transform2D = get_global_transform().affine_inverse()
-	var bottom_center := Vector2(CardNode.CARD_SIZE.x / 2.0, CardNode.CARD_SIZE.y)
-	var top_center := Vector2(CardNode.CARD_SIZE.x / 2.0, 0.0)
 	for card_id in loose.keys():
 		var target_id: String = loose[card_id].get("modifies_target", "")
 		if target_id == "":
@@ -634,9 +635,27 @@ func _rebuild_modify_links(loose: Dictionary) -> void:
 		if from_node == null or to_node == null:
 			continue
 		_modify_links.append([
-			to_local * (from_node.get_global_transform() * bottom_center),
-			to_local * (to_node.get_global_transform() * top_center),
+			to_local * (from_node.get_layer_transform() * _link_anchor_point(from_node, false)),
+			to_local * (to_node.get_layer_transform() * _link_anchor_point(to_node, true)),
 		])
+
+
+## Pre-rotation (local, unrotated-card-space) point that get_layer_transform()
+## then carries to the correct physical edge. A loose modifying card is
+## always effectively layer_angle 0 (loose cards never crossing-rotate), so
+## its own attach point is simply its physical bottom, pre-rotation
+## bottom-center. A Vertical/loose target's physical top is trivially its own
+## pre-rotation top-center (no rotation involved). A Horizontal target's
+## physical LEFT is, per the 90°-clockwise crossing rotation's actual effect
+## (verified directly: local top-center rotates to the physical right, local
+## bottom-center to the physical left), pre-rotation bottom-center — the same
+## point as the attach side, just for a different reason.
+func _link_anchor_point(node: CardNode, is_target: bool) -> Vector2:
+	var top_center := Vector2(CardNode.CARD_SIZE.x / 2.0, 0.0)
+	var bottom_center := Vector2(CardNode.CARD_SIZE.x / 2.0, CardNode.CARD_SIZE.y)
+	if is_target and node.layer != "horizontal":
+		return top_center
+	return bottom_center
 
 
 func _draw() -> void:
@@ -646,8 +665,7 @@ func _draw() -> void:
 		var source_node: CardNode = _loose_nodes.get(_edge_drag_source_id)
 		if source_node != null:
 			var to_local: Transform2D = get_global_transform().affine_inverse()
-			var bottom_center := Vector2(CardNode.CARD_SIZE.x / 2.0, CardNode.CARD_SIZE.y)
-			var from_pt: Vector2 = to_local * (source_node.get_global_transform() * bottom_center)
+			var from_pt: Vector2 = to_local * (source_node.get_layer_transform() * _link_anchor_point(source_node, false))
 			var to_pt: Vector2 = to_local * get_global_mouse_position()
 			draw_line(from_pt, to_pt, Color(0.7, 0.55, 0.85, 0.5), 2.0, true)
 

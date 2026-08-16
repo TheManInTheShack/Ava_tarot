@@ -85,7 +85,13 @@ func _draw() -> void:
 func _build_card_layer(layer: String) -> void:
 	var node := CardNode.new()
 	node.slot_id = slot_id
-	node.layer = layer
+	# set_layer() (not a raw `node.layer = layer` assignment) so the 90°
+	# crossing rotation is applied immediately, before this layer is ever
+	# filled — otherwise a never-yet-filled Horizontal sits at rotation 0
+	# (the Control default) until the first real deal calls set_orientation()
+	# and only then rotates it, which left both its hit-test rect and its
+	# drop-hint outline in the wrong, unrotated place the whole time before that.
+	node.set_layer(layer)
 	node.visible = false
 	node.tapped.connect(func(_sid: String, _lyr: String) -> void:
 		_bring_to_top(layer)

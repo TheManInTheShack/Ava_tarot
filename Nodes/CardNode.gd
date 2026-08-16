@@ -141,9 +141,32 @@ func set_layer(value: String) -> void:
 ## instance-level) — see Meta/Reading-Model.md's structural-vs-instance
 ## property split.
 func _update_rotation() -> void:
-	var layer_angle := (PI / 2.0) if layer == "horizontal" else 0.0
-	var reversed_angle := PI if orientation == "reversed" else 0.0
-	rotation = layer_angle + reversed_angle
+	rotation = layer_angle() + reversed_angle()
+
+
+func layer_angle() -> float:
+	return (PI / 2.0) if layer == "horizontal" else 0.0
+
+
+func reversed_angle() -> float:
+	return PI if orientation == "reversed" else 0.0
+
+
+## The transform this node would have if it were upright — used for the
+## modify-link anchor points, which should sit at the physical edge of where
+## the card structurally sits in its slot (top for Vertical/loose, the
+## crossing rotation's equivalent for Horizontal) regardless of whether the
+## card itself happens to be reversed. Temporarily drops rotation to just the
+## structural layer_angle, reads Godot's own real global transform (already
+## correctly composed through pivot/scale/the parent chain), then restores
+## it — far less error-prone than re-deriving Control's transform
+## composition by hand for a one-off calculation.
+func get_layer_transform() -> Transform2D:
+	var real_rotation := rotation
+	rotation = layer_angle()
+	var t := get_global_transform()
+	rotation = real_rotation
+	return t
 
 
 func set_interactive(value: bool) -> void:
