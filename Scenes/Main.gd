@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.13.4"
+const VERSION := "0.13.5"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -164,6 +164,7 @@ func _setup_controller() -> void:
 	_world.card_context_requested.connect(_on_card_context_requested)
 	_world.slot_drag_ended.connect(_on_slot_updated)
 	_world.slot_dragging.connect(_panel.set_slot_position_fields)
+	_world.loose_drag_resolved.connect(_on_loose_drag_resolved)
 
 	ApiClient.action_received.connect(_on_client_action_received)
 	ApiClient.client_joined.connect(_on_client_joined)
@@ -958,10 +959,10 @@ func _on_deal_to_slot_pressed(slot_id: String, layer: String) -> void:
 
 
 ## Cascades loose cards from a fixed tray origin so multiple dealt-loose
-## cards stay visually distinguishable without needing drag to spread them
-## out (dragging is deliberately not built yet — see _build_deck_section's
-## doc comment). Wraps into a new row after a handful so a long reading
-## doesn't run loose cards off the right edge of the table.
+## cards stay visually distinguishable without the controller needing to
+## drag each one apart right after dealing. Wraps into a new row after a
+## handful so a long reading doesn't run loose cards off the right edge of
+## the table.
 const LOOSE_TRAY_ORIGIN := Vector2(120.0, 40.0)
 const LOOSE_TRAY_STEP := Vector2(40.0, 0.0)
 const LOOSE_TRAY_ROW_STEP := Vector2(0.0, 40.0)
@@ -994,6 +995,84 @@ func _flip_loose(card_id: String) -> void:
 	info["face_up"] = not info.get("face_up", false)
 	_world.set_loose(loose)
 	ApiClient.send_ws({"type": "state", "payload": _state})
+
+
+## Reading-Model.md's path 2 for the modifier mechanic: dragging a loose card
+## resolves to whichever of the three outcomes CardWorld._resolve_loose_drop()
+## found at the drop point. "place"/"modify" are real graph-bound state
+## changes; anything else (empty table, or a slot's margin without landing on
+## a specific card) just repositions the loose card in place.
+func _on_loose_drag_resolved(card_id: String, x: float, y: float, resolution: Dictionary) -> void:
+	match resolution.get("kind", ""):
+		"place":
+			_place_loose_card(card_id, resolution.get("slot_id", ""), resolution.get("layer", ""))
+		"modify":
+			var loose: Dictionary = _state.get("loose", {})
+			var info: Dictionary = loose.get(card_id)
+			if info == null:
+				return
+			info["x"] = x
+			info["y"] = y
+			info["modifies_target"] = resolution.get("target_card_id", "")
+			_world.set_loose(loose)
+			ApiClient.send_ws({"type": "state", "payload": _state})
+		_:
+			_reposition_loose_card(card_id, x, y)
+
+
+func _reposition_loose_card(card_id: String, x: float, y: float) -> void:
+	var loose: Dictionary = _state.get("loose", {})
+	var info: Dictionary = loose.get(card_id)
+	if info == null:
+		return
+	info["x"] = x
+	info["y"] = y
+	_world.set_loose(loose)
+	ApiClient.send_ws({"type": "state", "payload": _state})
+
+
+## A loose card dropped onto an empty layer leaves the loose tray entirely —
+## same vertical-before-horizontal + already-filled checks as _deal_into(),
+## since this is the other way a layer gets filled. On rejection, re-applies
+## the still-unchanged _state so the dragged node snaps back to wherever it
+## actually is on record (CardWorld already moved the live node to the drop
+## point during the drag itself; this is what un-does that when the drop
+## doesn't stick).
+func _place_loose_card(card_id: String, slot_id: String, layer: String) -> void:
+	if not _slots.has(slot_id):
+		return
+	var cards: Dictionary = _state.get("cards", {})
+	var slot: Dictionary = cards.get(slot_id, {"vertical": null, "horizontal": null})
+	if slot.get(layer) != null:
+		_panel.set_status("That layer is already filled")
+		_world.set_loose(_state["loose"])
+		return
+	if layer == "horizontal" and slot.get("vertical") == null:
+		_panel.set_status("Vertical must be filled first")
+		_world.set_loose(_state["loose"])
+		return
+
+	var loose: Dictionary = _state.get("loose", {})
+	var info: Dictionary = loose.get(card_id)
+	if info == null:
+		return
+	loose.erase(card_id)
+	_state["loose"] = loose
+
+	slot[layer] = {
+		"deck_card_id": info.get("deck_card_id", card_id),
+		"name": info.get("name", ""),
+		"face_up": info.get("face_up", false),
+		"orientation": info.get("orientation", "upright"),
+		"image": info.get("image", ""),
+	}
+	cards[slot_id] = slot
+	_state["cards"] = cards
+
+	_world.apply_state(cards)
+	_world.set_loose(loose)
+	ApiClient.send_ws({"type": "state", "payload": _state})
+	_refresh_deck_slot_availability()
 
 
 func _invert_loose(card_id: String) -> void:

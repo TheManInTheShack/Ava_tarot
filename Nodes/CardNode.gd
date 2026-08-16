@@ -1,15 +1,17 @@
 class_name CardNode
 extends Control
 
-## A single card layer on the table. No dragging in this first pass — cards
-## live at a fixed slot position; the only interactions are tap-to-act (flip,
-## today) and right-click for the context menu, both gated by `interactive`,
-## which the world/panel sets from the live ACL.
+## A single card layer on the table. Slotted layers (vertical/horizontal)
+## live at a fixed slot position — tap-to-act (flip) and right-click for the
+## context menu, both gated by `interactive`, which the world/panel sets from
+## the live ACL. Loose cards (layer == "loose") can additionally be dragged —
+## see CardWorld's press-then-track handling of drag_pressed.
 ## Ported technique (not code) from Paradotz's Nodes/GraphNode.gd: custom
 ## _draw() per instance, tap/right-click handled in _gui_input.
 
 signal tapped(slot_id: String, layer: String)
 signal context_requested(slot_id: String, layer: String)
+signal drag_pressed(card_id: String)  # loose cards only — see _gui_input()
 
 const CARD_SIZE := Vector2(160, 280)
 
@@ -37,6 +39,9 @@ var card_name: String = ""
 var face_up: bool = false
 var orientation: String = "upright"  # "upright" or "reversed"
 var interactive: bool = false        # whether a tap currently does anything
+var highlighted: bool = false        # drag-hover feedback only — the loose-drag "which
+                                      # occupied card would this modify" target, distinct
+                                      # from `interactive`'s ACL-driven border
 
 static var back_texture: Texture2D = null
 var front_texture: Texture2D = null
@@ -98,6 +103,8 @@ func _draw() -> void:
 
 	if interactive:
 		draw_rect(rect, Color(0.63, 0.78, 0.2), false, 3.0)
+	if highlighted:
+		draw_rect(rect, Color(0.85, 0.65, 0.15), false, 4.0)
 
 
 func set_face_up(value: bool) -> void:
@@ -131,16 +138,33 @@ func set_interactive(value: bool) -> void:
 	queue_redraw()
 
 
+func set_highlighted(value: bool) -> void:
+	highlighted = value
+	queue_redraw()
+
+
+## Loose cards defer the left-press to drag_pressed instead of firing tapped
+## immediately — CardWorld tracks press-then-motion (same press-then-track
+## technique as its slot markers) to tell a plain tap (still flips, via
+## CardWorld re-emitting tapped itself once a press resolves as a non-drag)
+## apart from a real drag. Slotted layers are untouched: no drag mechanic for
+## them yet, tapped still fires immediately on press.
 func _gui_input(event: InputEvent) -> void:
 	if not interactive:
 		return
 	if event is InputEventMouseButton and event.pressed:
 		if event.button_index == MOUSE_BUTTON_LEFT:
-			tapped.emit(slot_id, layer)
+			if layer == "loose":
+				drag_pressed.emit(slot_id)
+			else:
+				tapped.emit(slot_id, layer)
 			accept_event()
 		elif event.button_index == MOUSE_BUTTON_RIGHT:
 			context_requested.emit(slot_id, layer)
 			accept_event()
 	elif event is InputEventScreenTouch and event.pressed:
-		tapped.emit(slot_id, layer)
+		if layer == "loose":
+			drag_pressed.emit(slot_id)
+		else:
+			tapped.emit(slot_id, layer)
 		accept_event()

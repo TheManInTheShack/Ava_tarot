@@ -17,6 +17,11 @@ signal card_tapped(slot_id: String, layer: String)
 signal card_context_requested(slot_id: String, layer: String)
 signal slot_drag_ended(slot_id: String, x: float, y: float)
 signal slot_dragging(slot_id: String, x: float, y: float)  # fires every drag-motion frame, for ControllerPanel's live X/Y fields
+## Fires once a loose-card drag ends with real movement. resolution is one of:
+## {"kind":"reposition"} — dropped on empty table, just moved
+## {"kind":"place","slot_id":..,"layer":..} — dropped on an empty layer
+## {"kind":"modify","target_card_id":..} — dropped on an already-occupied slot's card
+signal loose_drag_resolved(card_id: String, x: float, y: float, resolution: Dictionary)
 
 const LAYERS := ["vertical", "horizontal"]
 const DRAG_THRESHOLD := 6.0
@@ -35,6 +40,16 @@ var _dragging: bool = false
 var _press_start_local: Vector2 = Vector2.ZERO
 var _drag_grab_offset: Vector2 = Vector2.ZERO
 var _drag_orig_pos: Vector2 = Vector2.ZERO
+
+# Loose-card dragging (Reading-Model.md's modifier-mechanic drag path) — same
+# press-then-track technique as the slot markers above, tracked separately
+# since the two drags are mutually exclusive but otherwise independent.
+var _drag_loose_id: String = ""
+var _loose_dragging: bool = false
+var _loose_press_start_local: Vector2 = Vector2.ZERO
+var _loose_drag_grab_offset: Vector2 = Vector2.ZERO
+var _loose_drag_orig_pos: Vector2 = Vector2.ZERO
+var _drag_hover_target_id: String = ""  # deck_card_id currently highlighted as a modify target, if any
 
 
 func _ready() -> void:
@@ -168,9 +183,17 @@ func _on_slot_marker_gui_input(slot_id: String, marker: Control, ev: InputEvent)
 		set_process_input(true)
 
 
+## The two drags (slot markers, loose cards) are mutually exclusive — only
+## one can be mid-press at a time — so a single _input() dispatches to
+## whichever one is active rather than needing its own signal.
 func _input(event: InputEvent) -> void:
-	if _drag_slot_id == "":
-		return
+	if _drag_slot_id != "":
+		_input_slot_drag(event)
+	elif _drag_loose_id != "":
+		_input_loose_drag(event)
+
+
+func _input_slot_drag(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		var cur: Vector2 = _world.get_local_mouse_position()
 		if not _dragging and cur.distance_to(_press_start_local) > DRAG_THRESHOLD:
@@ -232,6 +255,130 @@ func _overlaps_others(slot_id: String, pos: Vector2) -> bool:
 	return false
 
 
+# ── Loose-card dragging (Reading-Model.md's drag-and-drop modifier path) ────
+# Press-then-track technique, same shape as the slot markers above but a
+# separate state block since a card is a real CardNode being moved directly
+# (no separate marker object needed - there's nothing to keep in sync).
+
+func _on_loose_drag_pressed(card_id: String) -> void:
+	var node: CardNode = _loose_nodes.get(card_id)
+	if node == null:
+		return
+	_drag_loose_id = card_id
+	_loose_drag_orig_pos = node.position
+	_loose_press_start_local = _world.get_local_mouse_position()
+	_loose_drag_grab_offset = node.position - _loose_press_start_local
+	_loose_dragging = false
+	node.get_parent().move_child(node, node.get_parent().get_child_count() - 1)
+	set_process_input(true)
+
+
+func _input_loose_drag(event: InputEvent) -> void:
+	if event is InputEventMouseMotion:
+		var cur: Vector2 = _world.get_local_mouse_position()
+		if not _loose_dragging and cur.distance_to(_loose_press_start_local) > DRAG_THRESHOLD:
+			_loose_dragging = true
+		if _loose_dragging:
+			var node: CardNode = _loose_nodes.get(_drag_loose_id)
+			if node != null:
+				node.position = cur + _loose_drag_grab_offset
+				_update_loose_drag_highlight(node)
+			get_viewport().set_input_as_handled()
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		_end_loose_drag()
+		get_viewport().set_input_as_handled()
+
+
+## A plain click (no real movement past DRAG_THRESHOLD) is the existing
+## tap-to-flip gesture - CardNode deferred its tapped.emit() to us via
+## drag_pressed precisely so we could tell the two apart here, so a
+## non-drag release re-emits it ourselves to preserve that behavior exactly.
+func _end_loose_drag() -> void:
+	var card_id: String = _drag_loose_id
+	var node: CardNode = _loose_nodes.get(card_id)
+	var was_dragging: bool = _loose_dragging
+	_drag_loose_id = ""
+	_loose_dragging = false
+	set_process_input(false)
+	_clear_loose_drag_highlight()
+	if node == null:
+		return
+	if not was_dragging:
+		card_tapped.emit(card_id, "loose")
+		return
+	var resolution: Dictionary = _resolve_loose_drop(node.position)
+	loose_drag_resolved.emit(card_id, node.position.x, node.position.y, resolution)
+
+
+## Reading-Model.md's three-way resolution: empty slot -> fills Vertical;
+## Vertical filled/Horizontal empty -> fills Horizontal; both filled -> a
+## MODIFIES target, picked by whichever of the two cards' own painted area
+## (via each CardNode's real transform, so this is correct regardless of the
+## 90-degree crossing rotation) the drop point actually lands on. No hit at
+## all (dropped in the slot's collision margin but not over either card, or
+## not over any slot) means "just repositioned" - the drag never fails, per
+## the doc, it just falls back to the plainest outcome.
+func _resolve_loose_drop(drag_pos: Vector2) -> Dictionary:
+	var drag_rect := Rect2(drag_pos, CardNode.CARD_SIZE)
+	for slot_id in _slot_geometry.keys():
+		var g: Dictionary = _slot_geometry[slot_id]
+		var slot_pos := Vector2(g.get("x", 0.0), g.get("y", 0.0))
+		if not drag_rect.intersects(CardNode.slot_collision_rect(slot_pos)):
+			continue
+		var visual: SlotVisual = _slot_visuals.get(slot_id)
+		if visual == null:
+			continue
+		var v_node: CardNode = visual.get_layer_node("vertical")
+		var h_node: CardNode = visual.get_layer_node("horizontal")
+		var v_filled: bool = v_node != null and v_node.visible
+		var h_filled: bool = h_node != null and h_node.visible
+		if not v_filled:
+			return {"kind": "place", "slot_id": slot_id, "layer": "vertical"}
+		if not h_filled:
+			return {"kind": "place", "slot_id": slot_id, "layer": "horizontal"}
+		var target_id: String = _hit_test_occupied_slot(v_node, h_node, drag_pos)
+		if target_id != "":
+			return {"kind": "modify", "target_card_id": target_id}
+		return {"kind": "reposition"}
+	return {"kind": "reposition"}
+
+
+## Horizontal is checked first - it draws on top (SlotVisual's default
+## stack, "closer to the user"), so a genuine overlap between the two
+## rotated footprints resolves to whichever one is actually visible there.
+func _hit_test_occupied_slot(v_node: CardNode, h_node: CardNode, drag_pos: Vector2) -> String:
+	var drop_center: Vector2 = drag_pos + CardNode.CARD_SIZE / 2.0
+	var card_rect := Rect2(Vector2.ZERO, CardNode.CARD_SIZE)
+	for node in [h_node, v_node]:
+		var local: Vector2 = node.get_global_transform().affine_inverse() * drop_center
+		if card_rect.has_point(local):
+			return node.deck_card_id
+	return ""
+
+
+func _update_loose_drag_highlight(dragged_node: CardNode) -> void:
+	var resolution: Dictionary = _resolve_loose_drop(dragged_node.position)
+	var target_id: String = resolution.get("target_card_id", "") if resolution.get("kind", "") == "modify" else ""
+	if target_id == _drag_hover_target_id:
+		return
+	_set_hover_highlight(_drag_hover_target_id, false)
+	_drag_hover_target_id = target_id
+	_set_hover_highlight(_drag_hover_target_id, true)
+
+
+func _clear_loose_drag_highlight() -> void:
+	_set_hover_highlight(_drag_hover_target_id, false)
+	_drag_hover_target_id = ""
+
+
+func _set_hover_highlight(deck_card_id: String, value: bool) -> void:
+	if deck_card_id == "":
+		return
+	var node: CardNode = _find_card_node(deck_card_id)
+	if node != null:
+		node.set_highlighted(value)
+
+
 ## cards: {slot_id: {"vertical": {deck_card_id, name, face_up, orientation}|null,
 ##                    "horizontal": {...}|null}}
 ## acl: {} to show everything with no interaction (controller's own view of
@@ -271,13 +418,17 @@ func set_loose(loose: Dictionary) -> void:
 			node = CardNode.new()
 			node.slot_id = card_id  # sentinel: loose id travels in slot_id, layer == "loose"
 			node.layer = "loose"
-			node.tapped.connect(_on_card_tapped)
+			# No tapped connection here — a loose CardNode only ever emits
+			# drag_pressed (see CardNode._gui_input), never tapped directly;
+			# _end_loose_drag() re-emits card_tapped itself for a non-drag click.
 			node.context_requested.connect(_on_card_context_requested)
+			node.drag_pressed.connect(_on_loose_drag_pressed)
 			_world.add_child(node)
 			_loose_nodes[card_id] = node
 		node.deck_card_id = card_id
 		node.card_name = info.get("name", "")
-		node.position = Vector2(info.get("x", 0.0), info.get("y", 0.0))
+		if card_id != _drag_loose_id:  # don't fight the position of whatever's actively being dragged
+			node.position = Vector2(info.get("x", 0.0), info.get("y", 0.0))
 		node.set_face_up(info.get("face_up", false))
 		node.set_orientation(info.get("orientation", "upright"))
 		node.set_image(info.get("image", ""))

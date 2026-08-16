@@ -167,3 +167,11 @@ func get_card_node_for(deck_card_id: String) -> CardNode:
 		if node.visible and node.deck_card_id == deck_card_id:
 			return node
 	return null
+
+
+## For CardWorld's loose-card drag resolution — whether a layer is currently
+## occupied is read straight off the render state (node.visible, same signal
+## set_layer() already uses to mean "empty"), so CardWorld doesn't need its
+## own separate copy of fill state.
+func get_layer_node(layer: String) -> CardNode:
+	return _cards.get(layer)

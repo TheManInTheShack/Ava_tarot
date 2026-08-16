@@ -713,11 +713,11 @@ func get_selected_client() -> Dictionary:
 
 
 ## State-independent (per Reading-Model.md, works in or out of a session) —
-## Reset/Reshuffle/Unshuffle/Deal Next/Deal to Slot/Deal Loose. A loose
-## card's only way to attach to something today is the right-click "Modify
-## Card" path (Reading-Model.md's path 1) — drag-and-drop (path 2, Step 5's
-## other half) needs real mouse-drag input handling, deliberately held back
-## until it can be tested hands-on rather than shipped blind.
+## Reset/Reshuffle/Unshuffle/Deal Next/Deal to Slot/Deal Loose. A loose card
+## can attach to something via either of Reading-Model.md's two paths now:
+## the right-click "Modify Card" menu (path 1), or dragging it onto a slot/
+## card directly (path 2, Step 5's other half — CardWorld's loose-drag
+## handling + Main._on_loose_drag_resolved()'s three-way resolution).
 func _build_deck_section() -> void:
 	var form := VBoxContainer.new()
 
