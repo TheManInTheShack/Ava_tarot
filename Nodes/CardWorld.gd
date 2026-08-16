@@ -50,6 +50,7 @@ var _loose_press_start_local: Vector2 = Vector2.ZERO
 var _loose_drag_grab_offset: Vector2 = Vector2.ZERO
 var _loose_drag_orig_pos: Vector2 = Vector2.ZERO
 var _drag_hover_target_id: String = ""  # deck_card_id currently highlighted as a modify target, if any
+var _last_loose: Dictionary = {}  # most recent set_loose() call, so a live drag can re-run _rebuild_modify_links() mid-motion
 
 
 func _ready() -> void:
@@ -210,6 +211,11 @@ func _input_slot_drag(event: InputEvent) -> void:
 				if visual != null:
 					visual.position = marker.position
 				slot_dragging.emit(_drag_slot_id, marker.position.x, marker.position.y)
+				# Keep any modify-link line honest while its slotted endpoint moves —
+				# same fix as the loose-drag path below, same underlying cause
+				# (_rebuild_modify_links only ran from set_loose(), never mid-drag).
+				_rebuild_modify_links(_last_loose)
+				queue_redraw()
 			get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
 		_end_slot_drag()
@@ -283,6 +289,12 @@ func _input_loose_drag(event: InputEvent) -> void:
 			if node != null:
 				node.position = cur + _loose_drag_grab_offset
 				_update_loose_drag_highlight(node)
+				# Same fix as the slot-drag path above: a modify-link line was only
+				# ever recomputed from set_loose(), so it used to sit still until the
+				# drag finished and the state round-tripped back, then jump to catch
+				# up. Recomputed from the live node position every motion frame now.
+				_rebuild_modify_links(_last_loose)
+				queue_redraw()
 			get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
 		_end_loose_drag()
@@ -346,11 +358,21 @@ func _resolve_loose_drop(drag_pos: Vector2) -> Dictionary:
 ## Horizontal is checked first - it draws on top (SlotVisual's default
 ## stack, "closer to the user"), so a genuine overlap between the two
 ## rotated footprints resolves to whichever one is actually visible there.
+##
+## drag_pos is CardWorld-local (it comes straight from _world.get_local_
+## mouse_position(), and _world sits at CardWorld's own local origin with no
+## transform of its own). node.get_global_transform() is true viewport-space
+## though - CardWorld itself is offset within Main's layout (PANEL_W), so
+## comparing drag_pos directly against a node's inverse global transform was
+## off by that whole offset, which is why this hit test never matched
+## anything. Routing the drop point through CardWorld's own global transform
+## first puts both sides in the same space, same technique
+## _rebuild_modify_links() already uses for its own endpoints.
 func _hit_test_occupied_slot(v_node: CardNode, h_node: CardNode, drag_pos: Vector2) -> String:
-	var drop_center: Vector2 = drag_pos + CardNode.CARD_SIZE / 2.0
+	var world_point: Vector2 = get_global_transform() * (drag_pos + CardNode.CARD_SIZE / 2.0)
 	var card_rect := Rect2(Vector2.ZERO, CardNode.CARD_SIZE)
 	for node in [h_node, v_node]:
-		var local: Vector2 = node.get_global_transform().affine_inverse() * drop_center
+		var local: Vector2 = node.get_global_transform().affine_inverse() * world_point
 		if card_rect.has_point(local):
 			return node.deck_card_id
 	return ""
@@ -439,6 +461,7 @@ func set_loose(loose: Dictionary) -> void:
 			_loose_nodes[card_id].queue_free()
 			_loose_nodes.erase(card_id)
 
+	_last_loose = loose
 	_rebuild_modify_links(loose)
 	queue_redraw()
 

@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.13.5"
+const VERSION := "0.13.6"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -987,6 +987,20 @@ func _on_deal_loose_pressed() -> void:
 	ApiClient.send_ws({"type": "state", "payload": _state})
 
 
+## Tap-to-reveal, one-way only — same rule as _reveal_layer() for slotted
+## cards: a tap only ever turns a loose card face-up, never back down.
+## Turning it back over is a deliberate act via the right-click "Turn" menu
+## (_flip_loose, still a real toggle).
+func _reveal_loose(card_id: String) -> void:
+	var loose: Dictionary = _state.get("loose", {})
+	var info: Dictionary = loose.get(card_id, {})
+	if info.is_empty() or info.get("face_up", false):
+		return
+	info["face_up"] = true
+	_world.set_loose(loose)
+	ApiClient.send_ws({"type": "state", "payload": _state})
+
+
 func _flip_loose(card_id: String) -> void:
 	var loose: Dictionary = _state.get("loose", {})
 	var info: Dictionary = loose.get(card_id, {})
@@ -1168,7 +1182,7 @@ func _new_card_layer(card_id: String) -> Dictionary:
 
 func _on_controller_card_tapped(slot_id: String, layer: String) -> void:
 	if layer == "loose":
-		_flip_loose(slot_id)  # loose id travels in slot_id — see CardWorld.set_loose()
+		_reveal_loose(slot_id)  # loose id travels in slot_id — see CardWorld.set_loose()
 	else:
 		_reveal_layer(slot_id, layer)
 
@@ -1212,6 +1226,46 @@ func _invert_layer(slot_id: String, layer: String) -> void:
 	info["orientation"] = "reversed" if info.get("orientation", "upright") == "upright" else "upright"
 	_world.apply_state(cards)
 	ApiClient.send_ws({"type": "state", "payload": _state})
+
+
+## Right-click "Remove from Slot" — the un-place path dealing never needed
+## until cards could be dragged around: sends a slotted card back to loose
+## (still a legitimate on-table card, per Reading-Model.md, not destroyed)
+## rather than into the deck. Vertical can't be pulled out from under a
+## filled Horizontal — same vertical-before-horizontal rule as everywhere
+## else, enforced here too even though the context menu already omits the
+## option in that case.
+func _remove_from_slot(slot_id: String, layer: String) -> void:
+	var cards: Dictionary = _state.get("cards", {})
+	var slot: Dictionary = cards.get(slot_id, {})
+	var info = slot.get(layer)
+	if info == null:
+		return
+	if layer == "vertical" and slot.get("horizontal") != null:
+		_panel.set_status("Remove the Horizontal card first")
+		return
+	slot[layer] = null
+	cards[slot_id] = slot
+	_state["cards"] = cards
+
+	var slot_pos: Dictionary = _slots.get(slot_id, {})
+	var loose: Dictionary = _state.get("loose", {})
+	loose[info.get("deck_card_id", "")] = {
+		"deck_card_id": info.get("deck_card_id", ""),
+		"name": info.get("name", ""),
+		"face_up": info.get("face_up", false),
+		"orientation": info.get("orientation", "upright"),
+		"image": info.get("image", ""),
+		"x": slot_pos.get("x", 0.0),
+		"y": slot_pos.get("y", 0.0),
+		"modifies_target": "",
+	}
+	_state["loose"] = loose
+
+	_world.apply_state(cards)
+	_world.set_loose(loose)
+	ApiClient.send_ws({"type": "state", "payload": _state})
+	_refresh_deck_slot_availability()
 
 
 func _on_acl_changed(slot_id: String, layer: String, is_visible: bool, actions: Array) -> void:
@@ -1292,6 +1346,13 @@ func _show_card_context_menu(slot_id: String, layer: String) -> void:
 	_add_ctx_button(vbox, "Hide" if is_visible else "Show", func() -> void: _on_ctx_show_hide(slot_id, layer))
 	_add_ctx_button(vbox, "Turn", func() -> void: _flip_layer(slot_id, layer))
 	_add_ctx_button(vbox, "Invert", func() -> void: _invert_layer(slot_id, layer))
+	# Vertical-before-horizontal cuts both ways: same as Deal to Slot only ever
+	# offering empty layers, this just omits "Remove from Slot" outright for a
+	# Vertical that still has a Horizontal on it, rather than showing it and
+	# rejecting the click.
+	var slot_cards: Dictionary = _state.get("cards", {}).get(slot_id, {})
+	if layer == "horizontal" or slot_cards.get("horizontal") == null:
+		_add_ctx_button(vbox, "Remove from Slot", func() -> void: _remove_from_slot(slot_id, layer))
 
 
 ## Reading-Model.md's path 1 for the modifier mechanic — loose cards only.
