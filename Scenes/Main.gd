@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.13.6"
+const VERSION := "0.13.7"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -1248,7 +1248,15 @@ func _remove_from_slot(slot_id: String, layer: String) -> void:
 	cards[slot_id] = slot
 	_state["cards"] = cards
 
+	# Offset below the slot rather than landing exactly on the vacated card's
+	# own footprint — same position the card used to render at, pixel for
+	# pixel, read as "nothing happened" (and, worse, sat exactly coincident
+	# with the SlotVisual's own drawn area, which is a shared footprint no
+	# other loose placement ever lands on by construction — Deal Loose's tray
+	# and every drag-drop outcome both keep clear of slot origins).
 	var slot_pos: Dictionary = _slots.get(slot_id, {})
+	var spawn_pos := Vector2(slot_pos.get("x", 0.0), slot_pos.get("y", 0.0)) \
+		+ Vector2(0.0, CardNode.CARD_SIZE.y + 40.0)
 	var loose: Dictionary = _state.get("loose", {})
 	loose[info.get("deck_card_id", "")] = {
 		"deck_card_id": info.get("deck_card_id", ""),
@@ -1256,8 +1264,8 @@ func _remove_from_slot(slot_id: String, layer: String) -> void:
 		"face_up": info.get("face_up", false),
 		"orientation": info.get("orientation", "upright"),
 		"image": info.get("image", ""),
-		"x": slot_pos.get("x", 0.0),
-		"y": slot_pos.get("y", 0.0),
+		"x": spawn_pos.x,
+		"y": spawn_pos.y,
 		"modifies_target": "",
 	}
 	_state["loose"] = loose

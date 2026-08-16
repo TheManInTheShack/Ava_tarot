@@ -493,9 +493,19 @@ func _find_card_node(deck_card_id: String) -> CardNode:
 ## `.position` alone is relative to its SlotVisual, not to `_world`. Global
 ## transforms compose correctly regardless of nesting depth; a loose card
 ## (still a direct `_world` child) works the same way through this too.
+##
+## Endpoints are the modifying card's own bottom-center and the modified
+## card's own top-center, not each card's center — a line into the middle of
+## a slot's crossing pair can't tell you which of the two occupied cards it
+## actually targets (they share the same center point), while an edge-to-edge
+## line visibly terminates at one specific card. Each point is still taken in
+## that node's own local space before transforming, so a Horizontal target's
+## "top" is correct for its own 90°-rotated orientation, not the table's.
 func _rebuild_modify_links(loose: Dictionary) -> void:
 	_modify_links.clear()
 	var to_local: Transform2D = get_global_transform().affine_inverse()
+	var bottom_center := Vector2(CardNode.CARD_SIZE.x / 2.0, CardNode.CARD_SIZE.y)
+	var top_center := Vector2(CardNode.CARD_SIZE.x / 2.0, 0.0)
 	for card_id in loose.keys():
 		var target_id: String = loose[card_id].get("modifies_target", "")
 		if target_id == "":
@@ -504,10 +514,9 @@ func _rebuild_modify_links(loose: Dictionary) -> void:
 		var to_node: CardNode = _find_card_node(target_id)
 		if from_node == null or to_node == null:
 			continue
-		var center := CardNode.CARD_SIZE / 2.0
 		_modify_links.append([
-			to_local * (from_node.get_global_transform() * center),
-			to_local * (to_node.get_global_transform() * center),
+			to_local * (from_node.get_global_transform() * bottom_center),
+			to_local * (to_node.get_global_transform() * top_center),
 		])
 
 
