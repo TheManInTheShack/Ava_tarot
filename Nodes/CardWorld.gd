@@ -27,6 +27,10 @@ signal loose_drag_resolved(card_id: String, x: float, y: float, resolution: Dict
 ## begin_edge_drag(). target_card_id == "" means the drag was cancelled
 ## (released over nothing valid).
 signal loose_edge_resolved(source_id: String, target_card_id: String)
+## The deck's own draw gesture (DeckVisual.draw_started) resolved — Main.gd
+## owns _deck_order/_state, so it creates the actual loose card, then calls
+## begin_loose_drag() to hand it back already following the cursor.
+signal deck_draw_requested()
 
 const LAYERS := ["vertical", "horizontal"]
 const DRAG_THRESHOLD := 6.0
@@ -70,6 +74,15 @@ var _drag_hover_kind: String = ""  # "modify" | "place"
 # moment it starts until the next click resolves or right-click cancels it.
 var _edge_drag_source_id: String = ""
 
+# The deck marker — see Nodes/DeckVisual.gd. Always present (not data-driven
+# from _state the way slots/loose cards are), one per CardWorld. Reposition-
+# dragging it is handled entirely here, same press-then-track shape as the
+# slot markers; drawing from it hands off to the loose-card drag machinery
+# above via begin_loose_drag().
+var _deck_visual: DeckVisual
+var _dragging_deck: bool = false
+var _deck_drag_grab_offset: Vector2 = Vector2.ZERO
+
 
 func _ready() -> void:
 	_world = Control.new()
@@ -77,6 +90,11 @@ func _ready() -> void:
 	_world.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_world.mouse_filter = Control.MOUSE_FILTER_PASS
 	add_child(_world)
+
+	_deck_visual = DeckVisual.new()
+	_deck_visual.drag_started.connect(_on_deck_drag_started)
+	_deck_visual.draw_started.connect(_on_deck_draw_started)
+	_world.add_child(_deck_visual)
 
 
 ## slots: {slot_id: {"name": String, "x": float, "y": float}} — loaded from
@@ -202,10 +220,10 @@ func _on_slot_marker_gui_input(slot_id: String, marker: Control, ev: InputEvent)
 		set_process_input(true)
 
 
-## The three drags (slot markers, loose cards, a pending modify edge) are
-## mutually exclusive — only one can be active at a time — so a single
-## _input() dispatches to whichever one is active rather than needing its
-## own per-mode signal.
+## The four drags (slot markers, loose cards, a pending modify edge, the deck
+## marker) are mutually exclusive — only one can be active at a time — so a
+## single _input() dispatches to whichever one is active rather than needing
+## its own per-mode signal.
 func _input(event: InputEvent) -> void:
 	if _drag_slot_id != "":
 		_input_slot_drag(event)
@@ -213,6 +231,8 @@ func _input(event: InputEvent) -> void:
 		_input_loose_drag(event)
 	elif _edge_drag_source_id != "":
 		_input_edge_drag(event)
+	elif _dragging_deck:
+		_input_deck_drag(event)
 
 
 func _input_slot_drag(event: InputEvent) -> void:
@@ -518,6 +538,50 @@ func _reset_edge_drag_state() -> void:
 	set_process_input(false)
 	_clear_drag_hover()
 	queue_redraw()
+
+
+# ── The deck marker (Nodes/DeckVisual.gd) ────────────────────────────────────
+
+func _on_deck_drag_started() -> void:
+	_dragging_deck = true
+	_deck_visual.get_parent().move_child(_deck_visual, _deck_visual.get_parent().get_child_count() - 1)
+	_deck_drag_grab_offset = _deck_visual.position - _world.get_local_mouse_position()
+	set_process_input(true)
+
+
+func _input_deck_drag(event: InputEvent) -> void:
+	if event is InputEventMouseMotion:
+		_deck_visual.position = _world.get_local_mouse_position() + _deck_drag_grab_offset
+		get_viewport().set_input_as_handled()
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		_dragging_deck = false
+		set_process_input(false)
+		get_viewport().set_input_as_handled()
+
+
+func _on_deck_draw_started() -> void:
+	deck_draw_requested.emit()
+
+
+## Programmatic start of a loose-card drag for the deck's draw gesture — same
+## end state as _on_loose_drag_pressed() (an actual press on the card
+## itself), but grabbed at the card's center under the current mouse
+## position, since there was no click on this specific node to compute a
+## grab offset from. _loose_dragging starts true, skipping the usual
+## distance threshold — the deck's own hover/hold already disambiguated this
+## as a real drag, there's no "was this just a tap" question left to ask.
+func begin_loose_drag(card_id: String) -> void:
+	var node: CardNode = _loose_nodes.get(card_id)
+	if node == null:
+		return
+	var cur: Vector2 = _world.get_local_mouse_position()
+	node.position = cur - CardNode.CARD_SIZE / 2.0
+	node.get_parent().move_child(node, node.get_parent().get_child_count() - 1)
+	_drag_loose_id = card_id
+	_loose_dragging = true
+	_loose_press_start_local = cur
+	_loose_drag_grab_offset = node.position - cur
+	set_process_input(true)
 
 
 ## cards: {slot_id: {"vertical": {deck_card_id, name, face_up, orientation}|null,

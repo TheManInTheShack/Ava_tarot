@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.14.1"
+const VERSION := "0.15.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -166,6 +166,7 @@ func _setup_controller() -> void:
 	_world.slot_dragging.connect(_panel.set_slot_position_fields)
 	_world.loose_drag_resolved.connect(_on_loose_drag_resolved)
 	_world.loose_edge_resolved.connect(_on_loose_edge_resolved)
+	_world.deck_draw_requested.connect(_on_deck_draw_requested)
 
 	ApiClient.action_received.connect(_on_client_action_received)
 	ApiClient.client_joined.connect(_on_client_joined)
@@ -990,6 +991,31 @@ func _on_deal_loose_pressed() -> void:
 	loose[card_id] = info
 	_state["loose"] = loose
 	_world.set_loose(loose)
+	ApiClient.send_ws({"type": "state", "payload": _state})
+
+
+## DeckVisual's own draw gesture (hover/hold-then-drag on the deck marker) —
+## same deal as _on_deal_loose_pressed() (state-independent, no session
+## gating), except the new card is handed straight to CardWorld's
+## begin_loose_drag() instead of landing in the tray, so it's already
+## following the cursor for the user to place. The x/y here don't matter
+## visually (begin_loose_drag repositions under the live mouse before this
+## next frame ever renders) but still need to be real numbers for a card
+## that gets released without moving, or if the deck is ever empty.
+func _on_deck_draw_requested() -> void:
+	if _deck_order.is_empty():
+		_panel.set_status("Deck is empty")
+		return
+	var card_id: String = _deck_order.pop_front()
+	var loose: Dictionary = _state.get("loose", {})
+	var info: Dictionary = _new_card_layer(card_id)
+	info["x"] = 0.0
+	info["y"] = 0.0
+	info["modifies_target"] = ""
+	loose[card_id] = info
+	_state["loose"] = loose
+	_world.set_loose(loose)
+	_world.begin_loose_drag(card_id)
 	ApiClient.send_ws({"type": "state", "payload": _state})
 
 
