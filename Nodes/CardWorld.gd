@@ -16,6 +16,7 @@ extends Control
 signal card_tapped(slot_id: String, layer: String)
 signal card_context_requested(slot_id: String, layer: String)
 signal slot_drag_ended(slot_id: String, x: float, y: float)
+signal slot_dragging(slot_id: String, x: float, y: float)  # fires every drag-motion frame, for ControllerPanel's live X/Y fields
 
 const LAYERS := ["vertical", "horizontal"]
 const DRAG_THRESHOLD := 6.0
@@ -178,6 +179,14 @@ func _input(event: InputEvent) -> void:
 			var marker: Control = _slot_markers.get(_drag_slot_id)
 			if marker != null:
 				marker.position = cur + _drag_grab_offset
+				# Live preview, same rule as preview_slot_position()/preview_slot_scale():
+				# the real SlotVisual (cards/glow) tracks the drag, not just the
+				# translucent marker, and ControllerPanel's X/Y fields follow along too
+				# — none of this touches _slot_geometry or persists anything.
+				var visual: SlotVisual = _slot_visuals.get(_drag_slot_id)
+				if visual != null:
+					visual.position = marker.position
+				slot_dragging.emit(_drag_slot_id, marker.position.x, marker.position.y)
 			get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
 		_end_slot_drag()
@@ -200,6 +209,10 @@ func _end_slot_drag() -> void:
 		return
 	if _overlaps_others(slot_id, marker.position):
 		marker.position = _drag_orig_pos
+		var visual: SlotVisual = _slot_visuals.get(slot_id)
+		if visual != null:
+			visual.position = _drag_orig_pos
+		slot_dragging.emit(slot_id, _drag_orig_pos.x, _drag_orig_pos.y)
 		return
 	slot_drag_ended.emit(slot_id, marker.position.x, marker.position.y)
 

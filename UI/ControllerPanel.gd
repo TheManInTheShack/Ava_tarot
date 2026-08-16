@@ -607,6 +607,20 @@ func set_slots(slots: Dictionary) -> void:
 	_refresh_deck_slot_menu(slots)
 
 
+## Live readout only, while a slot marker is being dragged on the canvas
+## (CardWorld's slot_dragging signal) — mirrors preview_slot_position()'s
+## rule in reverse. set_value_no_signal() so this doesn't loop back through
+## x_box/y_box's value_changed → slot_position_preview → back here.
+func set_slot_position_fields(slot_id: String, x: float, y: float) -> void:
+	var boxes: Dictionary = _slot_row_boxes.get(slot_id, {})
+	var x_box: SpinBox = boxes.get("x")
+	var y_box: SpinBox = boxes.get("y")
+	if x_box != null:
+		x_box.set_value_no_signal(x)
+	if y_box != null:
+		y_box.set_value_no_signal(y)
+
+
 ## Split per Meta/Reading-Model.md's controller panel structure: the client
 ## picker + Start belong to the out-of-session tier, Record Scenario/End
 ## Reading to the in-session tier — never shown together, see set_in_session().
