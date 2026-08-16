@@ -356,6 +356,8 @@ func _end_loose_drag() -> void:
 	_loose_dragging = false
 	set_process_input(false)
 	_clear_drag_hover()
+	_debug_resolution_text = ""
+	queue_redraw()
 	if node == null:
 		return
 	if not was_dragging:
@@ -486,8 +488,18 @@ func _clear_drag_hover() -> void:
 	_drag_hover_kind = ""
 
 
+## TEMP DEBUG (2026-08-16, round 2) — the first "nearest slot wins" fix
+## didn't clear the report, so back this goes until it's actually confirmed
+## fixed. Now shows the slot's real NAME (not just its opaque graph id) plus
+## kind/layer, so a screenshot reads directly as e.g. "place -> present /
+## horizontal" instead of needing a lookup.
+var _debug_resolution_text: String = ""
+
+
 func _update_loose_drag_highlight(dragged_node: CardNode) -> void:
 	var resolution: Dictionary = _resolve_loose_drop(dragged_node.position)
+	_debug_resolution_text = _describe_resolution(resolution)
+	queue_redraw()
 	match resolution.get("kind", ""):
 		"modify":
 			_set_drag_hover(_find_card_node(resolution.get("target_card_id", "")), "modify")
@@ -497,6 +509,17 @@ func _update_loose_drag_highlight(dragged_node: CardNode) -> void:
 			_set_drag_hover(node, "place")
 		_:
 			_set_drag_hover(null, "")
+
+
+func _describe_resolution(resolution: Dictionary) -> String:
+	var kind: String = resolution.get("kind", "reposition")
+	if kind == "place":
+		var slot_id: String = resolution.get("slot_id", "")
+		var slot_name: String = _slot_geometry.get(slot_id, {}).get("name", slot_id)
+		return "place -> %s / %s" % [slot_name, resolution.get("layer", "")]
+	elif kind == "modify":
+		return "modify -> %s" % resolution.get("target_card_id", "")
+	return "reposition"
 
 
 # ── Edge dragging (Reading-Model.md's path 1, "Modify Card") ────────────────
@@ -772,6 +795,10 @@ func _draw() -> void:
 			var from_pt: Vector2 = to_local * (source_node.get_layer_transform() * _link_anchor_point(source_node, false))
 			var to_pt: Vector2 = to_local * get_global_mouse_position()
 			draw_line(from_pt, to_pt, Color(0.7, 0.55, 0.85, 0.5), 2.0, true)
+	if _debug_resolution_text != "":
+		draw_rect(Rect2(4, 4, 460, 24), Color(0, 0, 0, 0.6), true)
+		draw_string(ThemeDB.fallback_font, Vector2(10, 20), _debug_resolution_text,
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)
 
 
 func _on_card_tapped(slot_id: String, layer: String) -> void:
