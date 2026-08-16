@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.13.2"
+const VERSION := "0.13.3"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -1090,7 +1090,26 @@ func _on_controller_card_tapped(slot_id: String, layer: String) -> void:
 	if layer == "loose":
 		_flip_loose(slot_id)  # loose id travels in slot_id — see CardWorld.set_loose()
 	else:
-		_flip_layer(slot_id, layer)
+		_reveal_layer(slot_id, layer)
+
+
+## Tap-to-reveal, one-way only: SlotVisual's tap handler also brings a layer
+## to the top of local z-order (switching which of Vertical/Horizontal is
+## drawn in front), so a plain tap fires on every such switch, not just the
+## first "uncover this card" tap. Toggling face_up on every tap made
+## switching layers flip an already-revealed card back face-down as a side
+## effect. A tap now only ever turns a card face-up; turning it back over is
+## a deliberate act via the right-click "Turn" menu (_flip_layer), which
+## still does a real toggle.
+func _reveal_layer(slot_id: String, layer: String) -> void:
+	var cards: Dictionary = _state.get("cards", {})
+	var slot: Dictionary = cards.get(slot_id, {})
+	var info = slot.get(layer)
+	if info == null or info.get("face_up", false):
+		return
+	info["face_up"] = true
+	_world.apply_state(cards)
+	ApiClient.send_ws({"type": "state", "payload": _state})
 
 
 func _flip_layer(slot_id: String, layer: String) -> void:
