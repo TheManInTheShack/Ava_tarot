@@ -323,6 +323,7 @@ func _commit_and_exit_layout_mod_mode() -> void:
 			"scale": boxes["scale"].value,
 			"v_order": boxes["v_order"].value,
 			"h_order": boxes["h_order"].value,
+			"horizontal_enabled": boxes["horizontal_enabled"].button_pressed,
 		})
 	if not updates.is_empty():
 		slots_saved.emit(updates)
@@ -596,10 +597,21 @@ func set_slots(slots: Dictionary) -> void:
 		position_column.add_child(size_row)
 		fields_row.add_child(position_column)
 
+		entry.add_child(fields_row)
+
+		# Off means this slot only ever takes a Vertical card — Main.gd's deal
+		# targeting and the loose-card drag resolution both treat a filled
+		# Vertical as the whole slot being full once this is off, instead of
+		# offering Horizontal as a second thing to fill.
+		var h_enable_cb := CheckBox.new()
+		h_enable_cb.text = "Horizontal on"
+		h_enable_cb.button_pressed = info.get("horizontal_enabled", true)
+		entry.add_child(h_enable_cb)
+
 		_slot_row_boxes[slot_id] = {
 			"x": x_box, "y": y_box, "v_order": v_order_box, "h_order": h_order_box, "scale": size_slider,
+			"horizontal_enabled": h_enable_cb,
 		}
-		entry.add_child(fields_row)
 
 		_slot_rows_form.add_child(entry)
 
@@ -788,6 +800,8 @@ func _refresh_deck_slot_menu(slots: Dictionary) -> void:
 	popup.clear()
 	for slot_id in slots.keys():
 		for layer in ["vertical", "horizontal"]:
+			if layer == "horizontal" and not slots[slot_id].get("horizontal_enabled", true):
+				continue
 			if _deck_fill_state.has("%s:%s" % [slot_id, layer]):
 				continue
 			var opt := {"slot_id": slot_id, "layer": layer}
@@ -1117,6 +1131,8 @@ func _refresh_cards_section(slots: Dictionary) -> void:
 	for slot_id in slots.keys():
 		var slot_name: String = slots[slot_id].get("name", slot_id)
 		for layer in ["vertical", "horizontal"]:
+			if layer == "horizontal" and not slots[slot_id].get("horizontal_enabled", true):
+				continue  # never fillable, so an ACL row for it is dead clutter
 			var key := "%s:%s" % [slot_id, layer]
 			var entry := VBoxContainer.new()
 

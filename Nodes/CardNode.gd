@@ -40,8 +40,12 @@ var face_up: bool = false
 var orientation: String = "upright"  # "upright" or "reversed"
 var interactive: bool = false        # whether a tap currently does anything
 var highlighted: bool = false        # drag-hover feedback only — the loose-drag "which
-                                      # occupied card would this modify" target, distinct
-                                      # from `interactive`'s ACL-driven border
+                                      # occupied card would this modify" target (amber),
+                                      # distinct from `interactive`'s ACL-driven border
+var drop_hint: bool = false          # drag-hover feedback for an EMPTY layer (green) —
+                                      # CardWorld forces this node .visible while true and
+                                      # this draws an outline only, ignoring face_up/texture/
+                                      # any stale data left over from before it was emptied
 
 static var back_texture: Texture2D = null
 var front_texture: Texture2D = null
@@ -86,6 +90,15 @@ static func _load_texture(image_filename: String) -> Texture2D:
 
 func _draw() -> void:
 	var rect := Rect2(Vector2.ZERO, CARD_SIZE)
+
+	# Drop-hint is a pure outline, deliberately not the normal fill/texture
+	# path below — this node is forced .visible while empty specifically to
+	# show this, and face_up/deck_card_id/textures can be stale leftovers
+	# from whatever last occupied this layer before it was cleared.
+	if drop_hint:
+		draw_rect(rect, Color(0.35, 0.85, 0.35, 0.9), false, 4.0)
+		return
+
 	draw_rect(rect, Color(0.08, 0.08, 0.08), true)
 	draw_rect(rect, Color(0.3, 0.3, 0.3), false, 2.0)
 

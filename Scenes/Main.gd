@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.13.7"
+const VERSION := "0.14.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -165,6 +165,7 @@ func _setup_controller() -> void:
 	_world.slot_drag_ended.connect(_on_slot_updated)
 	_world.slot_dragging.connect(_panel.set_slot_position_fields)
 	_world.loose_drag_resolved.connect(_on_loose_drag_resolved)
+	_world.loose_edge_resolved.connect(_on_loose_edge_resolved)
 
 	ApiClient.action_received.connect(_on_client_action_received)
 	ApiClient.client_joined.connect(_on_client_joined)
@@ -264,6 +265,7 @@ func _parse_layouts() -> void:
 			"x": float(props.get("x", 0.0)),
 			"y": float(props.get("y", 0.0)),
 			"scale": float(props.get("scale", 1.0)),
+			"horizontal_enabled": bool(props.get("horizontal_enabled", true)),
 			"layout_id": slot_layout[slot_id],
 			"vertical_id": vertical_id,
 			"horizontal_id": horizontal_id,
@@ -357,7 +359,7 @@ func _create_slot_with_layers(layout_id: String, name: String, x: float, y: floa
 	var edges: Array = _graph.get("edges", [])
 
 	var slot_id := _next_id()
-	nodes.append({"id": slot_id, "type": "Slot", "name": name, "properties": {"x": x, "y": y, "scale": 1.0}})
+	nodes.append({"id": slot_id, "type": "Slot", "name": name, "properties": {"x": x, "y": y, "scale": 1.0, "horizontal_enabled": true}})
 	edges.append({"id": _next_id(), "from": layout_id, "to": slot_id, "type": "HAS_SLOT", "properties": {}})
 
 	# Sensible default (vertical then horizontal, after everything that
@@ -507,6 +509,7 @@ func _on_slots_saved(updates: Array) -> void:
 				props["x"] = u.get("x", 0.0)
 				props["y"] = u.get("y", 0.0)
 				props["scale"] = u.get("scale", 1.0)
+				props["horizontal_enabled"] = u.get("horizontal_enabled", true)
 				n["properties"] = props
 				break
 		var info: Dictionary = _slots.get(slot_id, {})
@@ -901,6 +904,9 @@ func _deal_into(slot_id: String, layer: String) -> void:
 	if layer == "horizontal" and slot.get("vertical") == null:
 		_panel.set_status("Vertical must be filled first")
 		return
+	if layer == "horizontal" and not _slots.get(slot_id, {}).get("horizontal_enabled", true):
+		_panel.set_status("Horizontal is off for this slot")
+		return
 	if _deck_order.is_empty():
 		_panel.set_status("Deck is empty")
 		return
@@ -934,7 +940,7 @@ func _next_deal_target() -> Dictionary:
 		var vertical_filled: bool = slot_cards.get("vertical") != null
 		if not vertical_filled:
 			candidates.append({"slot_id": slot_id, "layer": "vertical", "order": info.get("vertical_deal_order", 0)})
-		if vertical_filled and slot_cards.get("horizontal") == null:
+		if vertical_filled and slot_cards.get("horizontal") == null and info.get("horizontal_enabled", true):
 			candidates.append({"slot_id": slot_id, "layer": "horizontal", "order": info.get("horizontal_deal_order", 0)})
 	if candidates.is_empty():
 		return {}
@@ -1065,6 +1071,10 @@ func _place_loose_card(card_id: String, slot_id: String, layer: String) -> void:
 		_panel.set_status("Vertical must be filled first")
 		_world.set_loose(_state["loose"])
 		return
+	if layer == "horizontal" and not _slots.get(slot_id, {}).get("horizontal_enabled", true):
+		_panel.set_status("Horizontal is off for this slot")
+		_world.set_loose(_state["loose"])
+		return
 
 	var loose: Dictionary = _state.get("loose", {})
 	var info: Dictionary = loose.get(card_id)
@@ -1113,31 +1123,13 @@ func _set_modifies_target(card_id: String, target_id: String) -> void:
 	ApiClient.send_ws({"type": "state", "payload": _state})
 
 
-## Returns every card currently on the table — {card_id: display_name} — as
-## candidate modify targets. Excludes exclude_id (a loose card can't modify
-## itself) and any loose card that currently modifies exclude_id (no
-## two-cycles — Reading-Model.md doesn't describe chained/circular
-## modifiers, and allowing one would make the connecting-line drawing and
-## eventual query answers ambiguous for no real benefit).
-func _modify_targets(exclude_id: String) -> Dictionary:
-	var targets: Dictionary = {}
-	var cards: Dictionary = _state.get("cards", {})
-	for slot_id in cards.keys():
-		var slot: Dictionary = cards[slot_id]
-		for layer in ["vertical", "horizontal"]:
-			var info = slot.get(layer)
-			if info != null:
-				var slot_name: String = _slots.get(slot_id, {}).get("name", slot_id)
-				targets[info.get("deck_card_id", "")] = "%s (%s — %s)" % [info.get("name", ""), slot_name, ControllerPanel.LAYER_LABELS.get(layer, layer)]
-	var loose: Dictionary = _state.get("loose", {})
-	for card_id in loose.keys():
-		if card_id == exclude_id:
-			continue
-		var info: Dictionary = loose[card_id]
-		if info.get("modifies_target", "") == exclude_id:
-			continue
-		targets[card_id] = "%s (loose)" % info.get("name", "")
-	return targets
+## CardWorld.begin_edge_drag()'s result — target_id == "" means the drag was
+## cancelled (right-click/Escape, or released over nothing valid), in which
+## case there's nothing to change.
+func _on_loose_edge_resolved(source_id: String, target_id: String) -> void:
+	if target_id == "":
+		return
+	_set_modifies_target(source_id, target_id)
 
 
 ## Returns every currently-tabled card to the pool before clearing — Reset is
@@ -1305,8 +1297,8 @@ func _hide_context_menu() -> void:
 	_context_menu = null
 
 
-## Shared overlay+panel scaffold (click-anywhere-else-to-dismiss) for both
-## the card context menu and the modify-target picker it can open.
+## Shared overlay+panel scaffold (click-anywhere-else-to-dismiss) for the
+## card context menu.
 func _begin_context_menu() -> VBoxContainer:
 	_hide_context_menu()
 
@@ -1380,36 +1372,14 @@ func _show_loose_context_menu(card_id: String) -> void:
 
 	_add_ctx_button(vbox, "Turn", func() -> void: _flip_loose(card_id))
 	_add_ctx_button(vbox, "Invert", func() -> void: _invert_loose(card_id))
-	_add_ctx_submenu_button(vbox, "Modify Card", func() -> void: _show_modify_target_picker(card_id))
+	# Grabs the loose end of a would-be MODIFIES edge and lets it follow the
+	# mouse (CardWorld.begin_edge_drag) instead of picking a target off a text
+	# list that named cards by name even face-down — the amber hover
+	# highlight it shares with the loose-card drag is what actually resolves
+	# it, same as dragging the card itself onto an occupied slot would.
+	_add_ctx_button(vbox, "Modify Card", func() -> void: _world.begin_edge_drag(card_id))
 	if info.get("modifies_target", "") != "":
 		_add_ctx_button(vbox, "Clear Modifier", func() -> void: _set_modifies_target(card_id, ""))
-
-
-## Second-level menu: pick which on-table card this loose card modifies.
-## Uses _add_ctx_submenu_button to open (doesn't auto-close the loose card's
-## own menu underneath it), but its own entries use the normal auto-closing
-## _add_ctx_button since picking a target is a terminal action.
-func _show_modify_target_picker(card_id: String) -> void:
-	var vbox := _begin_context_menu()
-
-	var label := Label.new()
-	label.text = "Modify which card?"
-	label.add_theme_font_size_override("font_size", 14)
-	label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
-	label.custom_minimum_size = Vector2(200.0, 0.0)
-	vbox.add_child(label)
-	vbox.add_child(HSeparator.new())
-
-	var targets: Dictionary = _modify_targets(card_id)
-	if targets.is_empty():
-		var empty_label := Label.new()
-		empty_label.text = "(nothing else on the table)"
-		empty_label.add_theme_font_size_override("font_size", 13)
-		empty_label.add_theme_color_override("font_color", Color(0.45, 0.45, 0.45))
-		vbox.add_child(empty_label)
-	else:
-		for target_id in targets.keys():
-			_add_ctx_button(vbox, targets[target_id], func() -> void: _set_modifies_target(card_id, target_id))
 
 
 func _add_ctx_button(vbox: VBoxContainer, text: String, cb: Callable) -> void:
@@ -1424,22 +1394,6 @@ func _add_ctx_button(vbox: VBoxContainer, text: String, cb: Callable) -> void:
 		cb.call()
 		_hide_context_menu()
 	)
-	vbox.add_child(btn)
-
-
-## Same visual as _add_ctx_button but doesn't auto-close afterward — for an
-## item whose callback opens a follow-up menu (_begin_context_menu already
-## replaces _context_menu with the new one; auto-closing here would
-## immediately tear down that new menu instead of the one it replaced).
-func _add_ctx_submenu_button(vbox: VBoxContainer, text: String, cb: Callable) -> void:
-	var btn := Button.new()
-	btn.text = text
-	btn.flat = true
-	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	btn.custom_minimum_size = Vector2(160.0, 40.0)
-	btn.add_theme_color_override("font_color", Color(0.88, 0.88, 0.88))
-	btn.add_theme_font_size_override("font_size", 14)
-	btn.pressed.connect(cb)
 	vbox.add_child(btn)
 
 
