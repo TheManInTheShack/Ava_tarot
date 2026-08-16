@@ -385,9 +385,25 @@ func _end_loose_drag() -> void:
 ## the doc, it just falls back to the plainest outcome.
 func _resolve_loose_drop(drag_pos: Vector2) -> Dictionary:
 	var world_point: Vector2 = get_global_transform() * (drag_pos + CardNode.CARD_SIZE / 2.0)
+	var drag_rect := Rect2(drag_pos, CardNode.CARD_SIZE)
 	for slot_id in _slot_geometry.keys():
 		var visual: SlotVisual = _slot_visuals.get(slot_id)
 		if visual == null:
+			continue
+		# Coarse per-slot gate, restored (2026-08-16 feedback): the precise
+		# per-node hit tests below have no sense of "this is a different
+		# slot" on their own, so without first confirming the cursor is even
+		# near THIS slot at all, a card near one slot's edge could hit a
+		# neighboring slot's Horizontal footprint and get offered there
+		# instead. Deliberately NOT CardNode.slot_collision_rect() here —
+		# that's sized off Vertical's 160px width alone (for a different
+		# purpose: keeping two slots from being dragged too close to each
+		# other) and would itself clip the outer edges of Horizontal's own
+		# legitimate 280px-wide drop zone. _crossing_footprint_rect() covers
+		# the full Vertical-union-rotated-Horizontal area instead.
+		var slot_pos := Vector2(_slot_geometry[slot_id].get("x", 0.0), _slot_geometry[slot_id].get("y", 0.0))
+		var slot_scale: float = _slot_geometry[slot_id].get("scale", 1.0)
+		if not drag_rect.intersects(_crossing_footprint_rect(slot_pos, slot_scale)):
 			continue
 		var v_node: CardNode = visual.get_layer_node("vertical")
 		var h_node: CardNode = visual.get_layer_node("horizontal")
@@ -414,6 +430,24 @@ func _resolve_loose_drop(drag_pos: Vector2) -> Dictionary:
 		if _node_hit(v_node, world_point):
 			return {"kind": "modify", "target_card_id": v_node.deck_card_id}
 	return {"kind": "reposition"}
+
+
+## The full crossing-pair footprint (Vertical union the 90°-rotated
+## Horizontal, both centered on the same pivot) — 280x280 at scale 1.0,
+## matching SlotVisual's own glow-sizing comment ("the crossing pair's
+## combined footprint... is roughly 280x280"). CARD_SIZE.y (280, the longer
+## dimension) as the half-extent covers both orientations regardless of
+## which one is actually present. Scaled by the slot's own Layout-editor
+## size (SlotVisual.scale), same as the real per-node hit tests already are
+## via get_global_transform() — otherwise a scaled-up slot's real footprint
+## would exceed this coarse gate and get clipped the same way the too-narrow
+## slot_collision_rect()-based version did. Small fixed margin on top, same
+## idea as CardNode's own SLOT_MARGIN_X, so this coarse check doesn't clip
+## right at the precise test's own boundary from floating-point jitter.
+func _crossing_footprint_rect(pos: Vector2, scale: float) -> Rect2:
+	var pivot := pos + CardNode.CARD_SIZE / 2.0
+	var half := CardNode.CARD_SIZE.y / 2.0 * scale + 10.0
+	return Rect2(pivot - Vector2(half, half), Vector2(half, half) * 2.0)
 
 
 ## drag_pos/world_point plumbing note: a dragged loose card's position is
