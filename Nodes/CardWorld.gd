@@ -511,19 +511,25 @@ func _update_loose_drag_highlight(dragged_node: CardNode) -> void:
 			_set_drag_hover(null, "")
 
 
-## Prints the ACTUAL v_node.visible/h_node.visible for the winning slot
-## directly, rather than making the reader infer them from which code branch
-## fired — the "past / horizontal" text alone still left room to doubt
-## whether v_filled was really true, so removing that doubt outright.
+## v.visible confirmed true with no card actually rendering and no
+## interactive response to right-click — visible/interactive get set
+## TOGETHER everywhere in the normal deal/apply_state path, but the drag-
+## hover preview code (_set_drag_hover's "place" branch) only ever touches
+## visible/drop_hint, never interactive. Leading theory: a stuck hover
+## preview from an earlier drag that never got cleared. Dumping every
+## relevant flag at once (not just visible) to find the actual contradiction
+## instead of guessing which one.
 func _describe_resolution(resolution: Dictionary) -> String:
 	var kind: String = resolution.get("kind", "reposition")
 	if kind == "place":
 		var slot_id: String = resolution.get("slot_id", "")
 		var slot_name: String = _slot_geometry.get(slot_id, {}).get("name", slot_id)
 		var visual: SlotVisual = _slot_visuals.get(slot_id)
-		var v_vis: bool = visual != null and visual.get_layer_node("vertical").visible
-		var h_vis: bool = visual != null and visual.get_layer_node("horizontal").visible
-		return "place -> %s/%s  v.visible=%s h.visible=%s" % [slot_name, resolution.get("layer", ""), v_vis, h_vis]
+		var v: CardNode = visual.get_layer_node("vertical") if visual != null else null
+		var h: CardNode = visual.get_layer_node("horizontal") if visual != null else null
+		var v_desc: String = "v(vis=%s int=%s hint=%s a=%.2f)" % [v.visible, v.interactive, v.drop_hint, v.modulate.a] if v != null else "v(null)"
+		var h_desc: String = "h(vis=%s int=%s hint=%s a=%.2f)" % [h.visible, h.interactive, h.drop_hint, h.modulate.a] if h != null else "h(null)"
+		return "place->%s/%s  %s %s" % [slot_name, resolution.get("layer", ""), v_desc, h_desc]
 	elif kind == "modify":
 		return "modify -> %s" % resolution.get("target_card_id", "")
 	return "reposition"
@@ -803,9 +809,9 @@ func _draw() -> void:
 			var to_pt: Vector2 = to_local * get_global_mouse_position()
 			draw_line(from_pt, to_pt, Color(0.7, 0.55, 0.85, 0.5), 2.0, true)
 	if _debug_resolution_text != "":
-		draw_rect(Rect2(4, 4, 460, 24), Color(0, 0, 0, 0.6), true)
+		draw_rect(Rect2(4, 4, 820, 24), Color(0, 0, 0, 0.7), true)
 		draw_string(ThemeDB.fallback_font, Vector2(10, 20), _debug_resolution_text,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color.WHITE)
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.WHITE)
 
 
 func _on_card_tapped(slot_id: String, layer: String) -> void:
