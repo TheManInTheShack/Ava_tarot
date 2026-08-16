@@ -363,15 +363,22 @@ func _end_loose_drag() -> void:
 	loose_drag_resolved.emit(card_id, node.position.x, node.position.y, resolution)
 
 
-## Reading-Model.md's resolution, generalized: a modify hit on either
-## occupied card always wins over a place hit on an empty one (checked
-## first, below), matching the live hover highlight's own "amber sits above
-## green" precedence. Horizontal is checked first for a modify hit since it
-## draws on top (SlotVisual's default stack, "closer to the user"); it's
-## also excluded from ever being a place target when the slot's own
-## horizontal_enabled is off — a filled Vertical then reads as the whole
-## slot being full, per the Layout editor's "Horizontal on" checkbox. No hit
-## at all (dropped clear of every slot, or in the dead zone of a slot whose
+## Reading-Model.md's resolution, generalized, with one deliberate priority
+## reversal (2026-08-16 feedback): when both cards are already occupied, a
+## modify hit always wins over a place hit — checked first below, matching
+## the live hover highlight's own "amber sits above green" precedence there,
+## and Horizontal is checked first for a modify hit since it draws on top
+## (SlotVisual's default stack, "closer to the user"). But when Vertical is
+## filled and Horizontal is still open, that priority flips: Horizontal's own
+## footprint (wider than Vertical's, from the crossing rotation — it reads as
+## "the whole middle") takes priority to fill it, and amber modify only
+## applies to whatever's left of Vertical's rect outside that middle band
+## (its top/bottom strips) — dragging to the middle to fill Horizontal is the
+## more intuitive default gesture there, not the exception. Horizontal is
+## excluded from ever being a place target when the slot's own
+## horizontal_enabled is off — a filled Vertical then reads as the whole slot
+## being full, per the Layout editor's "Horizontal on" checkbox. No hit at
+## all (dropped clear of every slot, or in the dead zone of a slot whose
 ## Horizontal is off) means "just repositioned" - the drag never fails, per
 ## the doc, it just falls back to the plainest outcome.
 func _resolve_loose_drop(drag_pos: Vector2) -> Dictionary:
@@ -388,14 +395,22 @@ func _resolve_loose_drop(drag_pos: Vector2) -> Dictionary:
 		var v_filled: bool = v_node.visible
 		var h_filled: bool = h_node != null and h_node.visible
 
-		if h_filled and _node_hit(h_node, world_point):
-			return {"kind": "modify", "target_card_id": h_node.deck_card_id}
-		if v_filled and _node_hit(v_node, world_point):
-			return {"kind": "modify", "target_card_id": v_node.deck_card_id}
-		if not v_filled and _node_hit(v_node, world_point):
-			return {"kind": "place", "slot_id": slot_id, "layer": "vertical"}
-		if v_filled and not h_filled and h_enabled and h_node != null and _node_hit(h_node, world_point):
+		if not v_filled:
+			if _node_hit(v_node, world_point):
+				return {"kind": "place", "slot_id": slot_id, "layer": "vertical"}
+			continue
+
+		if h_filled:
+			if _node_hit(h_node, world_point):
+				return {"kind": "modify", "target_card_id": h_node.deck_card_id}
+			if _node_hit(v_node, world_point):
+				return {"kind": "modify", "target_card_id": v_node.deck_card_id}
+			continue
+
+		if h_enabled and h_node != null and _node_hit(h_node, world_point):
 			return {"kind": "place", "slot_id": slot_id, "layer": "horizontal"}
+		if _node_hit(v_node, world_point):
+			return {"kind": "modify", "target_card_id": v_node.deck_card_id}
 	return {"kind": "reposition"}
 
 

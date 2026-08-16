@@ -32,9 +32,15 @@ signal card_context_requested(layer: String)
 const GLOW_RADIUS := 280.0
 const HALO_INNER_RADIUS := 296.0
 const HALO_OUTER_RADIUS := 312.0
-const GLOW_STEPS := 24  # concentric rings approximating a radial fade
+# Each "ring" is really a full filled disc drawn over the previous one, so
+# the composited result bands wherever one disc's flat alpha meets the next
+# rather than truly gradating — more steps makes each band smaller/less
+# perceptible, and a lower peak alpha makes the jump at each band's edge
+# less harsh regardless (2026-08-16 feedback: "harshly showing the gradient
+# rings" — both levers pulled together rather than just one).
+const GLOW_STEPS := 40
 const GLOW_FALLOFF_EXPONENT := 1.4
-const GLOW_PEAK_ALPHA := 0.4
+const GLOW_PEAK_ALPHA := 0.2
 
 var slot_id: String = ""
 var _name_label: Label
