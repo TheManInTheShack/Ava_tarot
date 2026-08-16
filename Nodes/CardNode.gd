@@ -87,13 +87,16 @@ func _build_loose_label() -> void:
 	add_child(_loose_label)
 
 
-## Counter-rotates against this node's own reversed_angle() so the label
-## reads upright regardless of orientation, and swaps which local edge it
-## anchors to (the pre-rotation "below" edge when upright, the pre-rotation
-## "above" edge when reversed — the 180° flip sends that to the physical
-## below either way) so it stays under the card on the table rather than
-## flipping to sit above it when reversed — same anchor-point reasoning as
-## CardWorld's modify-link endpoints.
+## Counter-rotates against this node's own rotation (layer_angle, always 0
+## for a loose card, plus reversed_angle when inverted) so the label reads
+## upright regardless of orientation, and inverse-transforms a FIXED
+## "physically below the card" offset through that same rotation to find the
+## local position that lands there once the rotation is applied — the
+## general version of CardWorld's own get_layer_transform()/anchor-point
+## approach. A first pass tried to special-case just the reversed offset by
+## hand and only flipped the Y component; a 180° rotation flips BOTH X and Y
+## around the pivot, so that version sent the label sideways off the card
+## instead of keeping it below (found live, 2026-08-16).
 func _refresh_loose_label() -> void:
 	if _loose_label == null:
 		return
@@ -101,12 +104,10 @@ func _refresh_loose_label() -> void:
 	if not face_up:
 		return
 	_loose_label.text = "%s%s" % [card_name, " (inv)" if orientation == "reversed" else ""]
-	if orientation == "reversed":
-		_loose_label.rotation = -PI
-		_loose_label.position = Vector2(-40.0, -22.0)
-	else:
-		_loose_label.rotation = 0.0
-		_loose_label.position = Vector2(-40.0, CARD_SIZE.y + 4.0)
+	_loose_label.rotation = -rotation
+	var below_offset := Vector2(-40.0, CARD_SIZE.y + 4.0) - pivot_offset
+	var basis := Transform2D(rotation, Vector2.ZERO)
+	_loose_label.position = pivot_offset + basis.affine_inverse().basis_xform(below_offset)
 
 
 ## image_filename comes straight from Data/cards.json's "image" field
