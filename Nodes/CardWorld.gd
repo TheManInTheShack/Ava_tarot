@@ -511,12 +511,19 @@ func _update_loose_drag_highlight(dragged_node: CardNode) -> void:
 			_set_drag_hover(null, "")
 
 
+## Prints the ACTUAL v_node.visible/h_node.visible for the winning slot
+## directly, rather than making the reader infer them from which code branch
+## fired — the "past / horizontal" text alone still left room to doubt
+## whether v_filled was really true, so removing that doubt outright.
 func _describe_resolution(resolution: Dictionary) -> String:
 	var kind: String = resolution.get("kind", "reposition")
 	if kind == "place":
 		var slot_id: String = resolution.get("slot_id", "")
 		var slot_name: String = _slot_geometry.get(slot_id, {}).get("name", slot_id)
-		return "place -> %s / %s" % [slot_name, resolution.get("layer", "")]
+		var visual: SlotVisual = _slot_visuals.get(slot_id)
+		var v_vis: bool = visual != null and visual.get_layer_node("vertical").visible
+		var h_vis: bool = visual != null and visual.get_layer_node("horizontal").visible
+		return "place -> %s/%s  v.visible=%s h.visible=%s" % [slot_name, resolution.get("layer", ""), v_vis, h_vis]
 	elif kind == "modify":
 		return "modify -> %s" % resolution.get("target_card_id", "")
 	return "reposition"
