@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.15.8"
+const VERSION := "0.15.9"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}

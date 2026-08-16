@@ -498,8 +498,6 @@ var _debug_resolution_text: String = ""
 
 func _update_loose_drag_highlight(dragged_node: CardNode) -> void:
 	var resolution: Dictionary = _resolve_loose_drop(dragged_node.position)
-	_debug_resolution_text = _describe_resolution(resolution)
-	queue_redraw()
 	match resolution.get("kind", ""):
 		"modify":
 			_set_drag_hover(_find_card_node(resolution.get("target_card_id", "")), "modify")
@@ -509,6 +507,11 @@ func _update_loose_drag_highlight(dragged_node: CardNode) -> void:
 			_set_drag_hover(node, "place")
 		_:
 			_set_drag_hover(null, "")
+	# Describing AFTER _set_drag_hover (not before) - it flips the node's own
+	# visible/drop_hint flags, so reading them first was showing last frame's
+	# leftover hover state instead of what this frame actually settled on.
+	_debug_resolution_text = _describe_resolution(resolution)
+	queue_redraw()
 
 
 ## v.visible confirmed true with no card actually rendering and no
