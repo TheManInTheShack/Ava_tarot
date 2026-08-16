@@ -20,6 +20,7 @@ extends Control
 
 signal drag_started()  # press + moved before priming -> CardWorld repositions this marker
 signal draw_started()  # primed, then moved or released -> CardWorld peels a loose card off
+signal context_requested()  # right-click -> Deal Next/Deal Loose/Draw/Shuffle/Reset menu
 
 const DECK_SIZE := Vector2(80.0, 140.0)  # half CardNode.CARD_SIZE, per the ask
 const DEFAULT_POSITION := Vector2(1480.0, 40.0)  # upper-right, ~40px margin (CardWorld is ~1600x1080 after PANEL_W)
@@ -76,6 +77,11 @@ func _gui_input(event: InputEvent) -> void:
 			_pressed = false
 			if _primed:
 				_trigger_draw()
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+		_pressed = false
+		_hold_timer.stop()
+		_set_primed(false)
+		context_requested.emit()
 	elif event is InputEventMouseMotion and _pressed and not _primed:
 		if get_local_mouse_position().distance_to(_press_start) > DRAG_THRESHOLD:
 			_pressed = false

@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.15.1"
+const VERSION := "0.15.2"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -167,6 +167,7 @@ func _setup_controller() -> void:
 	_world.loose_drag_resolved.connect(_on_loose_drag_resolved)
 	_world.loose_edge_resolved.connect(_on_loose_edge_resolved)
 	_world.deck_draw_requested.connect(_on_deck_draw_requested)
+	_world.deck_context_requested.connect(_show_deck_context_menu)
 
 	ApiClient.action_received.connect(_on_client_action_received)
 	ApiClient.client_joined.connect(_on_client_joined)
@@ -1354,6 +1355,30 @@ func _begin_context_menu() -> VBoxContainer:
 	vbox.add_theme_constant_override("separation", 2)
 	menu.add_child(vbox)
 	return vbox
+
+
+## Right-click on the deck marker — "the most useful items from the deck
+## rollup" (2026-08-16 feedback), same handlers as those buttons. "Draw" is
+## deliberately menu-only, not added to the rollup: it reuses the exact same
+## end state as the marker's own long-hover/hold gesture (a fresh loose card
+## already following the cursor) as a one-click shortcut that skips waiting
+## out the hold timer.
+func _show_deck_context_menu() -> void:
+	var vbox := _begin_context_menu()
+
+	var label := Label.new()
+	label.text = "Deck"
+	label.add_theme_font_size_override("font_size", 14)
+	label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
+	label.custom_minimum_size = Vector2(140.0, 0.0)
+	vbox.add_child(label)
+	vbox.add_child(HSeparator.new())
+
+	_add_ctx_button(vbox, "Deal Next", func() -> void: _on_deal_next_pressed())
+	_add_ctx_button(vbox, "Deal Loose", func() -> void: _on_deal_loose_pressed())
+	_add_ctx_button(vbox, "Draw", func() -> void: _on_deck_draw_requested())
+	_add_ctx_button(vbox, "Shuffle", func() -> void: _on_reshuffle_pressed())
+	_add_ctx_button(vbox, "Reset", func() -> void: _on_reset_pressed())
 
 
 func _show_card_context_menu(slot_id: String, layer: String) -> void:

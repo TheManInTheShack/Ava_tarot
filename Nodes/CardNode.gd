@@ -49,6 +49,7 @@ var drop_hint: bool = false          # drag-hover feedback for an EMPTY layer (g
 
 static var back_texture: Texture2D = null
 var front_texture: Texture2D = null
+var _loose_label: Label = null  # only built for layer == "loose" — see _build_loose_label()
 
 ## Shared across every CardNode — 78 cards, no reason to load the same PNG
 ## twice for two instances of the same card_id (e.g. a slotted copy and a
@@ -63,6 +64,49 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	if back_texture == null:
 		back_texture = _load_texture("card_back_default.png")
+	if layer == "loose":
+		_build_loose_label()
+
+
+## A loose card's own name sub-label — same idea as SlotVisual's per-layer
+## sub-labels (name + " (inv)" when reversed, shown only face_up so a
+## face-down card's identity doesn't leak) but simpler, "a mini-slot without
+## all the other stuff": just a plain child Label, no glow/halo/second layer.
+## Being a real child means it travels with this node for free on every
+## position update, drag included — Godot's own transform composition
+## handles that automatically, no per-frame sync code needed. Only its own
+## local position/rotation ever need an explicit update, and only when
+## orientation or face_up actually change (_refresh_loose_label()).
+func _build_loose_label() -> void:
+	_loose_label = Label.new()
+	_loose_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_loose_label.add_theme_font_size_override("font_size", 13)
+	_loose_label.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
+	_loose_label.size = Vector2(CARD_SIZE.x + 80.0, 18.0)
+	_loose_label.visible = false
+	add_child(_loose_label)
+
+
+## Counter-rotates against this node's own reversed_angle() so the label
+## reads upright regardless of orientation, and swaps which local edge it
+## anchors to (the pre-rotation "below" edge when upright, the pre-rotation
+## "above" edge when reversed — the 180° flip sends that to the physical
+## below either way) so it stays under the card on the table rather than
+## flipping to sit above it when reversed — same anchor-point reasoning as
+## CardWorld's modify-link endpoints.
+func _refresh_loose_label() -> void:
+	if _loose_label == null:
+		return
+	_loose_label.visible = face_up
+	if not face_up:
+		return
+	_loose_label.text = "%s%s" % [card_name, " (inv)" if orientation == "reversed" else ""]
+	if orientation == "reversed":
+		_loose_label.rotation = -PI
+		_loose_label.position = Vector2(-40.0, -22.0)
+	else:
+		_loose_label.rotation = 0.0
+		_loose_label.position = Vector2(-40.0, CARD_SIZE.y + 4.0)
 
 
 ## image_filename comes straight from Data/cards.json's "image" field
@@ -123,11 +167,13 @@ func _draw() -> void:
 func set_face_up(value: bool) -> void:
 	face_up = value
 	queue_redraw()
+	_refresh_loose_label()
 
 
 func set_orientation(value: String) -> void:
 	orientation = value
 	_update_rotation()
+	_refresh_loose_label()
 
 
 func set_layer(value: String) -> void:

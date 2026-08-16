@@ -31,6 +31,7 @@ signal loose_edge_resolved(source_id: String, target_card_id: String)
 ## owns _deck_order/_state, so it creates the actual loose card, then calls
 ## begin_loose_drag() to hand it back already following the cursor.
 signal deck_draw_requested()
+signal deck_context_requested()  # right-click on the deck marker
 
 const LAYERS := ["vertical", "horizontal"]
 const DRAG_THRESHOLD := 6.0
@@ -94,6 +95,7 @@ func _ready() -> void:
 	_deck_visual = DeckVisual.new()
 	_deck_visual.drag_started.connect(_on_deck_drag_started)
 	_deck_visual.draw_started.connect(_on_deck_draw_started)
+	_deck_visual.context_requested.connect(func() -> void: deck_context_requested.emit())
 	_world.add_child(_deck_visual)
 
 
