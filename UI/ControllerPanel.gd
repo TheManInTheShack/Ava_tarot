@@ -9,6 +9,7 @@ extends VBoxContainer
 signal start_pressed()
 signal record_pressed()
 signal end_pressed()
+signal payment_saved(method: String, amount: float, waived: bool)
 signal reset_pressed()
 signal reshuffle_pressed()
 signal unshuffle_pressed()
@@ -37,6 +38,10 @@ signal trait_modified(trait_id: String, name: String, note: String)
 signal trait_toggled(trait_id: String, has_trait: bool)  # add (true) / remove (false) for the focused client
 signal client_focus_changed()
 signal exit_pressed()
+
+## Low-tech and manual by design (Venmo personal link + her own confirmation
+## at session time, not a processor integration) — see Session section.
+const PAYMENT_METHODS := ["Venmo", "Cash", "Other"]
 
 const PALETTE := [
 	Color(0.29, 0.62, 1.00),  # Blue   — Session
@@ -86,6 +91,9 @@ var _clients: Array = []            # most recent set_clients() call
 var _selected_client_index: int = -1
 var _out_of_session_group: VBoxContainer
 var _in_session_group: VBoxContainer
+var _payment_method_menu: MenuButton
+var _payment_amount_box: SpinBox
+var _payment_waived_cb: CheckBox
 var _slots_cache: Dictionary = {}   # most recent set_slots() call, for menu labels
 var _deck_slot_menu: MenuButton
 var _deck_slot_options: Array = []  # [{"slot_id","layer"}], parallel to popup item ids
@@ -685,6 +693,48 @@ func _build_session_section() -> void:
 	end_btn.text = "End Reading"
 	end_btn.pressed.connect(func() -> void: end_pressed.emit())
 	_in_session_group.add_child(end_btn)
+
+	# Payment — low-tech and manual by design (Venmo personal link + her own
+	# confirmation, not a processor integration): she picks a method, enters
+	# what came in, and hits Save; "Waived" is the explicit override for a
+	# comped/free session, disabling the other two fields rather than just
+	# leaving them at a misleading blank/zero. No live-push-per-keystroke
+	# like the ACL checkboxes elsewhere in this panel — a deliberate Save
+	# button avoids writing a half-typed amount, same reasoning as Save
+	# Layout's own batch commit.
+	_in_session_group.add_child(HSeparator.new())
+	var payment_label := Label.new()
+	payment_label.text = "Payment"
+	_in_session_group.add_child(payment_label)
+	_payment_method_menu = MenuButton.new()
+	_payment_method_menu.text = "Method"
+	var pm_popup := _payment_method_menu.get_popup()
+	for i in range(PAYMENT_METHODS.size()):
+		pm_popup.add_item(PAYMENT_METHODS[i], i)
+	pm_popup.id_pressed.connect(func(id: int) -> void: _payment_method_menu.text = PAYMENT_METHODS[id])
+	_in_session_group.add_child(_payment_method_menu)
+	_payment_amount_box = SpinBox.new()
+	_payment_amount_box.prefix = "$"
+	_payment_amount_box.min_value = 0
+	_payment_amount_box.max_value = 100000
+	_payment_amount_box.step = 0.01
+	_payment_amount_box.select_all_on_focus = true
+	_in_session_group.add_child(_payment_amount_box)
+	_payment_waived_cb = CheckBox.new()
+	_payment_waived_cb.text = "Waived"
+	_payment_waived_cb.toggled.connect(func(v: bool) -> void:
+		_payment_method_menu.disabled = v
+		_payment_amount_box.editable = not v
+	)
+	_in_session_group.add_child(_payment_waived_cb)
+	var save_payment_btn := Button.new()
+	save_payment_btn.text = "Save Payment"
+	save_payment_btn.pressed.connect(func() -> void:
+		var method: String = "" if _payment_method_menu.text == "Method" else _payment_method_menu.text
+		payment_saved.emit(method, _payment_amount_box.value, _payment_waived_cb.button_pressed)
+	)
+	_in_session_group.add_child(save_payment_btn)
+
 	form.add_child(_in_session_group)
 
 	_make_rollup("Session", _rollup_color(0), form)
@@ -697,6 +747,14 @@ func _build_session_section() -> void:
 func set_in_session(in_session: bool) -> void:
 	_out_of_session_group.visible = not in_session
 	_in_session_group.visible = in_session
+	if in_session:
+		# Fresh Session node, fresh payment fields — last reading's entries
+		# shouldn't linger and look like they already apply to this one.
+		_payment_method_menu.text = "Method"
+		_payment_method_menu.disabled = false
+		_payment_amount_box.value = 0
+		_payment_amount_box.editable = true
+		_payment_waived_cb.set_pressed_no_signal(false)
 	# Traits' own client picker only matters out of session — in-session,
 	# focus is locked to that client and _traits_focus_label already covers
 	# saying so. Null-checked: this fires once from _build_session_section()

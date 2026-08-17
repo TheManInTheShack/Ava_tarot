@@ -128,6 +128,22 @@ themselves, so their outlines lingered on the client's screen indefinitely
   diff-checks the closing placements against the last save
   (`last_saved_placements` in `Grant/server/api-service/main.py`) and skips
   a redundant Scenario write if nothing changed since the last Record.
+- **Payment fields on the Session node (2026-08-17)**: `payment_method`
+  (Venmo/Cash/Other), `payment_amount`, `payment_waived` — low-tech and
+  manual by design, matching where the business actually is right now (a
+  Venmo personal-profile link, her own confirmation at session time, no
+  processor integration — no LLC bank account yet, and Stripe/Venmo don't
+  interface with each other regardless). New "Payment" controls at the
+  bottom of the in-session Session rollup: a method dropdown, a `$` amount
+  `SpinBox`, a "Waived" checkbox (disables the other two rather than
+  leaving them at a misleading blank/zero), one "Save Payment" button — no
+  live-push-per-keystroke like the ACL checkboxes elsewhere in this panel,
+  deliberately, so a half-typed amount never gets written. New `"payment"`
+  WS message type; writes straight onto the Session graph node
+  server-side, the same direct-property-write pattern `client_joined_at`/
+  `ended_at` already use — never part of `state`/`acl`, so it's never
+  broadcast to a client. Fields reset to blank every time a session starts
+  (no pre-fill from a prior reading).
 - **Deck controls are real** (Step 4, done 2026-08-13): a persistent standing
   order (`_deck_order`, undealt cards only) replaces the old inline-shuffle
   stopgap. Reset (clears the table, returns dealt cards to the pool) /
@@ -657,7 +673,7 @@ browser. Also added 2026-08-11: `/paratarot/`'s nginx location was missing
 the `Cache-Control: no-cache` header `/paradotz/` already has for the exact
 same reason (Godot reuses `index.js`/`.pck`/`.wasm` filenames on every
 build, so browsers silently serve a stale cached copy after a deploy) — this
-had been live and un-fixed since Paratarot shipped. `v0.21.1` as of the
+had been live and un-fixed since Paratarot shipped. `v0.22.0` as of the
 2026-08-17 session (started that session at `v0.16.2`, ended the 2026-08-16
 session there) — every fix in this file's "Non-obvious bugs" section landed
 as its own version bump, deployed and hands-on re-tested individually

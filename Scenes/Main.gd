@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.21.1"
+const VERSION := "0.22.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -150,6 +150,7 @@ func _setup_controller() -> void:
 	_panel.start_pressed.connect(_on_start_pressed)
 	_panel.record_pressed.connect(_on_record_pressed)
 	_panel.end_pressed.connect(_on_end_pressed)
+	_panel.payment_saved.connect(_on_payment_saved)
 	_panel.reset_pressed.connect(_on_reset_pressed)
 	_panel.reshuffle_pressed.connect(_on_reshuffle_pressed)
 	_panel.unshuffle_pressed.connect(_on_unshuffle_pressed)
@@ -633,6 +634,19 @@ func _on_layout_deleted(layout_id: String) -> void:
 func _on_exit_pressed() -> void:
 	if OS.get_name() == "Web":
 		JavaScriptBridge.eval("window.location.href = '/dashboard'", true)
+
+
+## Low-tech and manual by design (Venmo personal link + her own confirmation
+## at session time, not a processor integration) — see Reading-Model.md's
+## Session item. Writes straight onto the Session graph node, mirroring
+## client_joined_at/ended_at's own pattern (grant-api's WS handler) — never
+## part of _state/_acl, so it's never broadcast to a client either.
+func _on_payment_saved(method: String, amount: float, waived: bool) -> void:
+	ApiClient.send_ws({
+		"type": "payment",
+		"payload": {"payment_method": method, "payment_amount": amount, "payment_waived": waived},
+	})
+	_panel.set_status("Payment saved")
 
 
 func _on_start_pressed() -> void:
