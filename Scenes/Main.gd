@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.16.2"
+const VERSION := "0.17.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -302,6 +302,11 @@ func _apply_active_layout() -> void:
 	var active_slots := _slots_for_layout(_active_layout_id)
 	_panel.set_slots(active_slots)
 	_world.set_slots(active_slots)
+	# Carried in every subsequent "state" WS push for free (same _state dict
+	# every existing send_ws({"type":"state",...}) call already sends) — the
+	# client has no other way to learn slot geometry, since it has no graph
+	# read access of its own (public role, no graph_access grant).
+	_state["slots"] = active_slots
 
 
 ## Tells the Deck section's "Deal to Slot" picker which layers are currently
@@ -1570,8 +1575,18 @@ func _on_client_ws_closed() -> void:
 	_join_current_session()
 
 
-func _on_state_received(cards: Dictionary, acl: Dictionary) -> void:
+func _on_state_received(cards: Dictionary, acl: Dictionary, slots: Dictionary) -> void:
 	_last_acl = acl
+	# Client has no graph read access of its own (public role, no
+	# graph_access grant) — this is the only way it ever learns slot
+	# geometry. Must run before apply_state(): that iterates
+	# _world's own _slot_visuals, which stays empty (nothing to render into,
+	# regardless of how correct the card payload is) until set_slots() has
+	# created them at least once. set_slots() is safe to call on every
+	# state push — it only touches position/name/scale of existing
+	# SlotVisuals, never their card-layer data.
+	if not slots.is_empty():
+		_world.set_slots(slots)
 	_world.apply_state(cards, acl)
 
 
