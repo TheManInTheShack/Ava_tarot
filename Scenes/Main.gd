@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.21.0"
+const VERSION := "0.21.1"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -42,6 +42,7 @@ var _pending_client: Dictionary = {}   # last client_joined info, for the checkp
 var _last_acl: Dictionary = {}         # client mode only: most recent ACL received
 var _last_loose_ids: Dictionary = {}   # client mode only: card_id -> true, for spotting a fresh draw
 var _pending_draw_select: bool = false # client mode only: "Draw/Select Card" was tapped, waiting for the new card to arrive
+var _current_client_session_id: String = ""  # client mode only: session_id of the WS actually connected to, "" if none
 var _context_menu: Control = null      # controller mode only: the currently-open card context menu
 
 # Controller mode only: the graph-backed Layout/Slot model — see
@@ -1800,6 +1801,7 @@ func _setup_client() -> void:
 	add_child(_status_label)
 
 	_join_current_session()
+	_watch_session_identity()
 
 
 func _join_current_session() -> void:
@@ -1809,29 +1811,65 @@ func _join_current_session() -> void:
 		await get_tree().create_timer(3.0).timeout
 		_join_current_session()
 		return
+	_current_client_session_id = session_id
 	ApiClient.connect_ws(session_id)
 	if is_instance_valid(_status_label):
 		_status_label.queue_free()
 
 
-func _on_client_ws_closed() -> void:
-	# Controller ended the reading (or dropped) — clear the board instead of
-	# freezing on the last-seen cards, and go back to waiting for the next one.
-	# apply_state({}) alone only clears card data on the SlotVisuals that
-	# already exist — it never removes the SlotVisuals themselves (only
-	# set_slots() does that), so the empty slot outlines/glow/labels used to
-	# stay on screen indefinitely after End Reading. set_slots({}) tears
-	# them down; the next session's first state push rebuilds them fresh.
+## Session identity is dictated entirely by the controller's own Start/End
+## Reading — never by anything the client remembers locally — so this is
+## the one authoritative question to keep re-asking: is the session this
+## client thinks it's in still the real one? ws_closed (below) is the fast
+## path for the normal case (server actively closes the socket on End
+## Reading), but the WebSocketPeer doesn't always signal a clean close —
+## grant-api restarts on every deploy and wipes all in-memory sessions when
+## it does, dropping every open connection without a close frame. Without
+## this, a client caught by that would sit on stale cards indefinitely,
+## never told the reading it's "in" doesn't exist server-side anymore.
+func _watch_session_identity() -> void:
+	while true:
+		await get_tree().create_timer(5.0).timeout
+		if _current_client_session_id == "":
+			continue  # _join_current_session()'s own loop already covers "not connected yet"
+		var session_info: Dictionary = await ApiClient.get_current_session()
+		if session_info.get("session_id", "") != _current_client_session_id:
+			ApiClient.disconnect_ws()
+			_reset_client_board()
+			_show_waiting_screen()
+			_join_current_session()
+
+
+## Controller ended the reading (or dropped, or the server itself restarted
+## out from under this connection) — clear the board instead of freezing on
+## the last-seen cards. apply_state({}) alone only clears card data on the
+## SlotVisuals that already exist — it never removes the SlotVisuals
+## themselves (only set_slots() does that), so the empty slot outlines/
+## glow/labels used to stay on screen indefinitely after End Reading.
+## set_slots({}) tears them down; the next session's first state push
+## rebuilds them fresh.
+func _reset_client_board() -> void:
+	_current_client_session_id = ""
 	_last_acl = {}
+	_last_loose_ids.clear()
+	_pending_draw_select = false
 	_world.set_slots({})
 	_world.apply_state({})
 	_world.set_loose({}, false)
 	_overlay.hide()
+
+
+func _show_waiting_screen() -> void:
 	if not is_instance_valid(_status_label):
 		_status_label = Label.new()
 		_status_label.set_anchors_preset(Control.PRESET_CENTER)
 		add_child(_status_label)
 	_status_label.text = "Waiting for your reading to begin…"
+
+
+func _on_client_ws_closed() -> void:
+	_reset_client_board()
+	_show_waiting_screen()
 	_join_current_session()
 
 
