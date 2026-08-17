@@ -75,11 +75,13 @@ var _drag_hover_kind: String = ""  # "modify" | "place"
 # moment it starts until the next click resolves or right-click cancels it.
 var _edge_drag_source_id: String = ""
 
-# The deck marker — see Nodes/DeckVisual.gd. Always present (not data-driven
-# from _state the way slots/loose cards are), one per CardWorld. Reposition-
-# dragging it is handled entirely here, same press-then-track shape as the
-# slot markers; drawing from it hands off to the loose-card drag machinery
-# above via begin_loose_drag().
+# The deck marker — see Nodes/DeckVisual.gd. Controller-only for now (Piece A
+# of the deck feature; the client-facing ACL piece isn't built yet), not
+# data-driven from _state the way slots/loose cards are, one per controller
+# CardWorld. Reposition-dragging it is handled entirely here, same press-
+# then-track shape as the slot markers; drawing from it hands off to the
+# loose-card drag machinery above via begin_loose_drag().
+var is_client: bool = false  # set by Main.gd right after .new(), before add_child() — must be set before _ready() runs
 var _deck_visual: DeckVisual
 var _dragging_deck: bool = false
 var _deck_drag_grab_offset: Vector2 = Vector2.ZERO
@@ -91,6 +93,9 @@ func _ready() -> void:
 	_world.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_world.mouse_filter = Control.MOUSE_FILTER_PASS
 	add_child(_world)
+
+	if is_client:
+		return
 
 	_deck_visual = DeckVisual.new()
 	_deck_visual.drag_started.connect(_on_deck_drag_started)
