@@ -3,10 +3,20 @@
 Read this first in any new session. It reflects the current built state.
 `Meta/Reading-Model.md`'s Layout/Slot/Session graph model and deck & modifier
 mechanics — the redesign this file used to describe as "in-progress" — are
-now fully built (all 7 Next Session Candidates roadmap steps below are done,
-Background's own half of Step 6 and deck client access excepted, both
-explicitly still open). Read the roadmap section for the step-by-step history
-and "Non-obvious bugs" for hard-won lessons before touching drag/drop code.
+now fully built, including full client-side deck/loose/layout access
+(2026-08-17). All 7 Next Session Candidates roadmap steps below are done;
+Background's own half of Step 6 is the only piece of the original roadmap
+still explicitly open — see "What is not yet done" for that plus everything
+added to the list since. Read the roadmap section for the step-by-step
+history and "Non-obvious bugs" for hard-won lessons before touching
+drag/drop code.
+
+**As of 2026-08-17, priorities have shifted toward launching the site as a
+real business** (see Grant's own CLAUDE.md "Last Session") — this repo's
+further feature work (Scenario-recording depth, weighted stats driving the
+table's visual language, client worksheets) is real but explicitly lower
+priority right now than getting avareads.com itself ready for paying
+customers.
 
 ---
 
@@ -335,44 +345,143 @@ themselves, so their outlines lingered on the client's screen indefinitely
   The client-facing side of this — visibility, letting a client "pick" a
   card, separate place/modify permission bits — is a deliberately deferred
   follow-up piece needing its own client-role testing pass.
-- **Deck client access, "Piece B" (2026-08-17)**: a "Deck" row in Client
-  Access — Visible / Can Deal Next / Can Draw Loose, same one-checkbox-per-
-  row shape the per-slot rows use. `"_deck"`/`"deck"` is a pseudo slot_id/
-  layer pair, deliberately, not a new ACL shape — reuses `actions_for()`/
-  `sync_acl()`-style plumbing and the client action-request path (both
-  grant-api's action validation and CardWorld's own resolution key off
-  card_id+layer generically) with no special-casing anywhere else in the
-  pipeline. Client-side, `DeckVisual` gets a `simple_tap_mode` (no
-  reposition-drag, no hold-to-draw, no right-click menu — a plain tap opens
-  the same bottom action bar a tapped card does, ClientOverlay, showing
-  whichever of Deal Next/Draw Loose is currently granted); hidden until the
-  controller checks "Visible". Deal Next/Draw Loose reuse
-  `_on_deal_next_pressed()`/`_on_deal_loose_pressed()` unchanged — both were
-  already state-independent, no session gating to route around. `point`/
-  full `pick`-as-a-drag-source (client physically dragging a drawn card
-  around, vs. it landing via the same server-authoritative deal) are still
-  open — see below.
+- **Deck client access, full (2026-08-17, built in two passes)**: a "Deck"
+  cluster in Client Access, all sharing the `"_deck"`/`"deck"` pseudo
+  slot_id/layer pair (deliberately, not a new ACL shape — reuses
+  `actions_for()`/`sync_acl()`-style plumbing and the client
+  action-request path, both grant-api's action validation and CardWorld's
+  own resolution keying off card_id+layer generically, with no
+  special-casing anywhere else in the pipeline) even though not everything
+  in it is literally about the deck object. Two tiers:
+  - **Selection methods** — how a card gets "into a client's hand," four
+    checkboxes: **Can Deal Next**/**Can Draw Loose** (unchanged,
+    server-authoritative one-tap deals — reuse
+    `_on_deal_next_pressed()`/`_on_deal_loose_pressed()` verbatim, no
+    session gating to route around, either one); **Can Draw & Select**
+    (draws the same way as Draw Loose, then the instant the new card's
+    real identity comes back in the next broadcast, the client calls
+    `CardWorld.begin_loose_drag()` on it itself — see
+    `Main._pending_draw_select`/`_last_loose_ids` diffing); **Can Select
+    Loose** (shown on an *already-loose* card's own tap menu, not the
+    deck's — picks it up the same way). The latter two are
+    "selection-only": tapping either just picks a card up, it doesn't
+    resolve anything by itself.
+  - **Resolution methods** — once a card is selected and dragged, **Can
+    Place in Slot** / **Can Place Freely** / **Can Modify** govern how the
+    drop resolves (mirrors CardWorld's existing "place"/"modify"/
+    "reposition" resolution kinds exactly — same highlights the controller
+    sees). Never shown as buttons (`ClientOverlay` filters against an
+    explicit per-context whitelist, not "whatever's in the ACL array") —
+    they're outcomes of a drag, not commands. A resolution kind that isn't
+    granted falls back to a fixed tray position instead of wherever the
+    client actually dropped it (`"loose_fallback"`, auto-granted whenever
+    any selection method is on, never a checkbox) — deliberately distinct
+    from "place freely," so it reads as "not your call," and also the
+    safety net if a permission is revoked mid-drag.
+  - The pick-up gesture itself is **click-to-carry, not press-and-hold**:
+    tapping "Draw & Select"/"Select Loose Card" calls
+    `CardWorld.begin_loose_drag()` programmatically (sets `_loose_dragging
+    = true` immediately, skipping the usual press-distance threshold), so
+    the card follows the pointer with nothing held down until the next
+    click resolves it — reuses the same mechanic `begin_edge_drag()`
+    (Modify Card) already established, just applied to a card's position
+    instead of an edge endpoint. A raw press-and-hold directly on an
+    interactive loose card still also works (CardWorld's drag machinery
+    doesn't care how a drag started), kept alongside rather than removed.
+  - The client's action bar refreshes live now, not just on next tap —
+    `_on_state_received` re-pushes whatever's currently open through the
+    same whitelist every time a fresh state/acl arrives, so a permission
+    toggled off while a menu is open doesn't leave stale buttons showing.
+  - Client isn't authoritative, so a resolved drag becomes a request (the
+    controller re-validates independently — `Main._apply_client_loose_resolution`
+    — before touching state), same "client proposes, controller applies
+    and rebroadcasts" pattern flip already used. Needed the action-relay
+    to forward the *whole* message, not just card_id/layer/action/user_id
+    (grant-api) — the resolution actions carry extra targeting fields
+    (loose_id, slot_id, target_layer, target_card_id, x, y).
+  - `point` and full free-form multi-touch dragging are still open — see
+    below — but `pick` itself (a client actually selecting and placing a
+    card, with real resolution permissions) is done.
 - **"Show All"/"Hide All"** (2026-08-17): two buttons at the top of Client
   Access, one graph write each — sets every currently-fillable layer's
   (respecting `horizontal_enabled`) plus the deck's `visible` flag in one
   shot. Deliberately touches only `visible`, never `actions` — blinking the
   whole table off and back on shouldn't also strip a client's already-
   granted flip/deal/draw permissions.
+- **Layout/Loose visibility, with a cascade (2026-08-17)**: two more Client
+  Access rows, `"_layout"`/`"layout"` and `"_loose"`/`"loose"` pseudo
+  entries following the same pattern as the deck's. "Layout" gates whether
+  the client sees the table shape *at all* — every `SlotVisual`'s own
+  `.visible`, independent of any card's own visibility — starts checked
+  (`_layout_visible`, a persistent controller-side flag that survives a
+  table reset, unlike the rest of `_acl`) so a session reveals the empty
+  layout at Start Reading rather than only once something's dealt into it.
+  Unchecking it cascades: every per-slot row *and* Loose go off too
+  (`Main._cascade_layout_off()`) — Reading-Model.md's "everything but the
+  deck is a child of the Layout," taken literally. "Loose" is an
+  all-or-nothing visibility toggle for loose cards as a category (no
+  per-card granularity, per the ask) — `grant-api`'s
+  `_filter_state_for_client` used to drop `state["loose"]` unconditionally
+  for every client; now gated the same way. Fixed a real, previously
+  undiagnosed bug in the same pass: `_on_start_pressed()` called
+  `send_ws()` immediately after `connect_ws()`, but `connect_to_url()`
+  only starts the handshake — `send_ws()` silently no-ops until the socket
+  reaches `STATE_OPEN`, so the very first state/acl push (the one
+  carrying the layout) was essentially always dropped. Now awaits
+  `ApiClient.ws_opened` first.
+- **Session lifecycle hardening (2026-08-17)**: two independent fixes,
+  found via live "client sees a ghost of the previous reading" testing.
+  (1) Client-side: a background loop (`Main._watch_session_identity()`)
+  re-asks `/paratarot/sessions/current` every 5s regardless of what the
+  WebSocket itself believes its own state is, and forces a full board
+  reset the moment the session it's connected to isn't the real current
+  one anymore — `ws_closed` was already handling the *clean* disconnect
+  case, this is the belt-and-suspenders path for a connection that drops
+  without a proper close frame (e.g. a `grant-api` restart, which happens
+  on every deploy and wipes all in-memory sessions). (2) Server-side, the
+  actual root cause once found: End Reading's "save" message
+  (`close_session: true`) only ever wrote the graph checkpoint — the
+  session stayed registered as `_current_session_id` until the
+  controller's own WebSocket happened to fully disconnect, a second
+  network round trip with no guaranteed timing relative to the
+  controller's very next Start Reading (which only creates a fresh
+  session if none is already "current"). Ending one reading and
+  immediately starting the next could both still see the stale session
+  and silently reconnect to it — no client-side fix could ever catch
+  this, since the client wasn't malfunctioning, it was correctly
+  reflecting what the server told it. `close_session` now retires the
+  session immediately in the same message handler, not on disconnect.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started
 - Celtic Cross / Ava's Celtic Cross layouts (buildable now via the Layout
   editor, just not pre-seeded)
-- `point` ACL action, and `pick` as an actual client-side drag gesture off
-  the deck (today's "Draw Loose"/"Deal Next" are server-authoritative one-
-  tap deals, not a drag the client controls the landing spot of)
+- `point` ACL action — never wired up client-side (protocol has room for
+  it, nothing uses it). `pick` itself is done as of 2026-08-17 — see "What
+  works" above (Can Draw & Select / Can Select Loose, click-to-carry drag,
+  full place/free/modify resolution) — this bullet used to lump the two
+  together and call both open; only `point` still is.
 - Card info/meanings panel, reading history browser
 - Stats-model nodes as their own queryable type (reading metrics currently
-  just live as empty properties on the Scenario node)
+  just live as empty properties on the Scenario node) — see the
+  2026-08-17 "future direction" note below, this is about to become a
+  real near-term priority, not just a someday item
 - Kuzu-as-primary-store migration on the Grant side (separate, near-term
   session — see `Grant/docz/infrastructure/data-architecture.md`) — until
   then, cross-reading trend queries over many Scenario nodes are JSONB-blob
   full-loads, fine at current scale, not built yet anyway
+
+**Future direction, stated 2026-08-17, not yet scoped or started:** more
+Scenario-recording work is coming; the owner wants to start attaching
+*weights* to data-model items (which cards, which traits, which placements
+matter how much), feeding into a stats layer that would ultimately drive
+the color palette of a slot's own glow/halo and the table background
+itself — the visual language reacting to the reading's own content, not
+just structural on/off state the way it does today. Also wants
+client-centric worksheets that eventually become real documents and
+reporting-dashboard items. Explicitly lower priority than the site-launch
+work below for now — see Grant's own CLAUDE.md "Last Session" for the
+current overall priority order across both repos.
 
 ---
 
@@ -515,11 +624,13 @@ Grant repo's `docz/infrastructure/auth-service.md` and `data-architecture.md`).
 
 ## Realtime Protocol (grant-api's `/ws/paratarot/{session_id}`)
 
-Controller → server: `{"type": "state", "payload": {"layout", "cards": {slot_id: {deck_card_id, name, face_up, orientation}}}}`, `{"type": "acl", "payload": {slot_id: {"visible": bool, "actions": [...]}}}`, `{"type": "save", "payload": {"client", "scenario", "placements"}}` (checkpoint).
+Controller → server: `{"type": "state", "payload": {"cards": {slot_id: {vertical, horizontal}}, "loose": {...}, "slots": {slot_id: {name, x, y, scale, horizontal_enabled}}}}`, `{"type": "acl", "payload": {...}}`, `{"type": "save", "payload": {"client", "scenario", "placements", "close_session"}}` (checkpoint — `close_session: true` is End Reading, `false` is a mid-session Record).
 
-Server → client: `{"type": "state", "payload": {...filtered...}, "acl": {...}}` — cards not currently `visible` are simply absent from `payload.cards`.
+ACL shape is `{slot_id: {layer: {"visible": bool, "actions": [...]}}}` for real Slot/Vertical/Horizontal layers, plus three pseudo slot_id/layer pairs that reuse the exact same shape for things that aren't real Slots: `"_deck"`/`"deck"` (`actions` any of `deal_next`/`draw_loose`/`draw_select`/`select_loose`/`place_slot`/`place_free`/`modify`/`loose_fallback` — see ava_tarot's own "Deck client access" in "What works" for what each means), `"_layout"`/`"layout"` (`visible` only — gates every `SlotVisual`'s existence on the client's screen, independent of any card's own visibility), `"_loose"`/`"loose"` (`visible` only — all-or-nothing for loose cards as a category, no per-card granularity).
 
-Client → server: `{"type": "action", "card_id": slot_id, "action": "flip"}` — server validates against the live ACL before forwarding to the controller; controller decides how to apply it (currently: flip toggles and rebroadcasts).
+Server → client: `{"type": "state", "payload": {"cards": {...filtered by ACL...}, "slots": {...unfiltered, structural...}, "loose": {...all-or-nothing by "_loose" ACL...}}, "acl": {...unfiltered — a client needs to know what it's granted, not just what it can currently see...}}`.
+
+Client → server: `{"type": "action", "card_id", "layer", "action", ...extra}` — server validates `action` against `acl[card_id][layer].actions` before forwarding (whole message, not just the four core fields — the loose-card resolution actions carry extra targeting fields: `loose_id` always, plus `slot_id`/`target_layer` for `place_slot`, `target_card_id`/`x`/`y` for `modify`, `x`/`y` for `place_free`); controller decides how to apply it and rebroadcasts. `select_loose` never reaches the server at all — picking up an already-loose card is pure client-side UI, only the eventual drop needs the controller.
 
 Server → controller: `{"type": "client_joined", "user_id", "username"}` when a client connects — this is how the controller knows who to attach to the Client node at the next checkpoint.
 
@@ -546,7 +657,7 @@ browser. Also added 2026-08-11: `/paratarot/`'s nginx location was missing
 the `Cache-Control: no-cache` header `/paradotz/` already has for the exact
 same reason (Godot reuses `index.js`/`.pck`/`.wasm` filenames on every
 build, so browsers silently serve a stale cached copy after a deploy) — this
-had been live and un-fixed since Paratarot shipped. `v0.18.0` as of the
+had been live and un-fixed since Paratarot shipped. `v0.21.1` as of the
 2026-08-17 session (started that session at `v0.16.2`, ended the 2026-08-16
 session there) — every fix in this file's "Non-obvious bugs" section landed
 as its own version bump, deployed and hands-on re-tested individually
