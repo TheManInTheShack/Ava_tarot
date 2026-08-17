@@ -46,6 +46,17 @@ var drop_hint: bool = false          # drag-hover feedback for an EMPTY layer (g
                                       # CardWorld forces this node .visible while true and
                                       # this draws an outline only, ignoring face_up/texture/
                                       # any stale data left over from before it was emptied
+## Whether this layer genuinely holds a real dealt card — set ONLY by
+## SlotVisual.set_layer() from real state data, never touched by the drag-
+## hover preview machinery. `visible` alone used to double as "is this
+## filled" for CardWorld's fill checks, but the hover preview also flips
+## `visible` true on an EMPTY layer just to render its green outline —
+## which fed back into the very next fill check, making "hover over an
+## empty Vertical" and "Vertical is filled" indistinguishable and causing
+## a genuine oscillation between the Vertical and Horizontal hints on every
+## motion frame (found live, 2026-08-16). `has_data` is the real signal;
+## `visible` stays purely about what's currently drawn.
+var has_data: bool = false
 
 static var back_texture: Texture2D = null
 var front_texture: Texture2D = null

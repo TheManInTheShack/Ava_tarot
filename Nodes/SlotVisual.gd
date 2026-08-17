@@ -154,9 +154,11 @@ func set_layer(layer: String, info, interactive: bool) -> void:
 	var label: Label = _sub_labels[layer]
 	if info == null:
 		node.visible = false
+		node.has_data = false
 		label.visible = false
 		return
 	node.visible = true
+	node.has_data = true
 	node.deck_card_id = info.get("deck_card_id", "")
 	node.card_name = info.get("name", "")
 	node.set_face_up(info.get("face_up", false))
@@ -173,17 +175,19 @@ func set_layer(layer: String, info, interactive: bool) -> void:
 
 ## For the modifier mechanic's connecting-line lookup (CardWorld._find_card_node)
 ## — a modify target isn't restricted to loose cards, it can be a slotted one.
+## has_data, not visible - a slot mid-hover-preview can be .visible while
+## still genuinely empty (see CardNode.has_data's own doc).
 func get_card_node_for(deck_card_id: String) -> CardNode:
 	for layer in ["vertical", "horizontal"]:
 		var node: CardNode = _cards[layer]
-		if node.visible and node.deck_card_id == deck_card_id:
+		if node.has_data and node.deck_card_id == deck_card_id:
 			return node
 	return null
 
 
 ## For CardWorld's loose-card drag resolution — whether a layer is currently
-## occupied is read straight off the render state (node.visible, same signal
-## set_layer() already uses to mean "empty"), so CardWorld doesn't need its
-## own separate copy of fill state.
+## occupied is read off the returned node's own has_data (not visible, which
+## the drag-hover preview also flips on an empty layer to draw its outline),
+## so CardWorld doesn't need its own separate copy of fill state.
 func get_layer_node(layer: String) -> CardNode:
 	return _cards.get(layer)

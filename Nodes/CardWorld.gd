@@ -356,8 +356,6 @@ func _end_loose_drag() -> void:
 	_loose_dragging = false
 	set_process_input(false)
 	_clear_drag_hover()
-	_debug_resolution_text = ""
-	queue_redraw()
 	if node == null:
 		return
 	if not was_dragging:
@@ -412,8 +410,14 @@ func _resolve_loose_drop(drag_pos: Vector2) -> Dictionary:
 		if v_node == null:
 			continue
 		var h_enabled: bool = _slot_geometry[slot_id].get("horizontal_enabled", true)
-		var v_filled: bool = v_node.visible
-		var h_filled: bool = h_node != null and h_node.visible
+		# has_data, not visible - the hover preview below also flips visible
+		# true on an EMPTY layer just to draw its green outline, which fed
+		# straight back into this exact check on the very next motion frame,
+		# making "hovering an empty Vertical" indistinguishable from
+		# "Vertical is filled" and oscillating between the two hints forever
+		# (found live, 2026-08-16 - see CardNode.has_data's own doc).
+		var v_filled: bool = v_node.has_data
+		var h_filled: bool = h_node != null and h_node.has_data
 		var candidate: Dictionary = {}
 
 		if not v_filled:
@@ -488,14 +492,6 @@ func _clear_drag_hover() -> void:
 	_drag_hover_kind = ""
 
 
-## TEMP DEBUG (2026-08-16, round 2) — the first "nearest slot wins" fix
-## didn't clear the report, so back this goes until it's actually confirmed
-## fixed. Now shows the slot's real NAME (not just its opaque graph id) plus
-## kind/layer, so a screenshot reads directly as e.g. "place -> present /
-## horizontal" instead of needing a lookup.
-var _debug_resolution_text: String = ""
-
-
 func _update_loose_drag_highlight(dragged_node: CardNode) -> void:
 	var resolution: Dictionary = _resolve_loose_drop(dragged_node.position)
 	match resolution.get("kind", ""):
@@ -507,35 +503,6 @@ func _update_loose_drag_highlight(dragged_node: CardNode) -> void:
 			_set_drag_hover(node, "place")
 		_:
 			_set_drag_hover(null, "")
-	# Describing AFTER _set_drag_hover (not before) - it flips the node's own
-	# visible/drop_hint flags, so reading them first was showing last frame's
-	# leftover hover state instead of what this frame actually settled on.
-	_debug_resolution_text = _describe_resolution(resolution)
-	queue_redraw()
-
-
-## v.visible confirmed true with no card actually rendering and no
-## interactive response to right-click — visible/interactive get set
-## TOGETHER everywhere in the normal deal/apply_state path, but the drag-
-## hover preview code (_set_drag_hover's "place" branch) only ever touches
-## visible/drop_hint, never interactive. Leading theory: a stuck hover
-## preview from an earlier drag that never got cleared. Dumping every
-## relevant flag at once (not just visible) to find the actual contradiction
-## instead of guessing which one.
-func _describe_resolution(resolution: Dictionary) -> String:
-	var kind: String = resolution.get("kind", "reposition")
-	if kind == "place":
-		var slot_id: String = resolution.get("slot_id", "")
-		var slot_name: String = _slot_geometry.get(slot_id, {}).get("name", slot_id)
-		var visual: SlotVisual = _slot_visuals.get(slot_id)
-		var v: CardNode = visual.get_layer_node("vertical") if visual != null else null
-		var h: CardNode = visual.get_layer_node("horizontal") if visual != null else null
-		var v_desc: String = "v(vis=%s int=%s hint=%s a=%.2f)" % [v.visible, v.interactive, v.drop_hint, v.modulate.a] if v != null else "v(null)"
-		var h_desc: String = "h(vis=%s int=%s hint=%s a=%.2f)" % [h.visible, h.interactive, h.drop_hint, h.modulate.a] if h != null else "h(null)"
-		return "place->%s/%s  %s %s" % [slot_name, resolution.get("layer", ""), v_desc, h_desc]
-	elif kind == "modify":
-		return "modify -> %s" % resolution.get("target_card_id", "")
-	return "reposition"
 
 
 # ── Edge dragging (Reading-Model.md's path 1, "Modify Card") ────────────────
@@ -593,7 +560,7 @@ func _hit_test_any_card(world_point: Vector2, exclude_id: String) -> CardNode:
 	for visual in _slot_visuals.values():
 		for layer in ["horizontal", "vertical"]:
 			var node: CardNode = visual.get_layer_node(layer)
-			if node != null and node.visible and _node_hit(node, world_point):
+			if node != null and node.has_data and _node_hit(node, world_point):
 				return node
 	return null
 
@@ -811,10 +778,6 @@ func _draw() -> void:
 			var from_pt: Vector2 = to_local * (source_node.get_layer_transform() * _link_anchor_point(source_node, false))
 			var to_pt: Vector2 = to_local * get_global_mouse_position()
 			draw_line(from_pt, to_pt, Color(0.7, 0.55, 0.85, 0.5), 2.0, true)
-	if _debug_resolution_text != "":
-		draw_rect(Rect2(4, 4, 820, 24), Color(0, 0, 0, 0.7), true)
-		draw_string(ThemeDB.fallback_font, Vector2(10, 20), _debug_resolution_text,
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color.WHITE)
 
 
 func _on_card_tapped(slot_id: String, layer: String) -> void:
