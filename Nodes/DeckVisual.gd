@@ -44,6 +44,10 @@ func _ready() -> void:
 	custom_minimum_size = DECK_SIZE
 	size = DECK_SIZE
 	mouse_filter = Control.MOUSE_FILTER_STOP
+	# back_texture otherwise only loads the first time a CardNode is ever
+	# created (a deal, a hover-draw) - this marker draws before any of that
+	# happens at session start, so it showed a plain color box until then.
+	CardNode.ensure_back_texture_loaded()
 	mouse_entered.connect(_on_mouse_entered)
 	mouse_exited.connect(_on_mouse_exited)
 	_hold_timer = Timer.new()

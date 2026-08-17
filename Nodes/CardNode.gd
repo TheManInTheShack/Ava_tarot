@@ -73,10 +73,19 @@ func _ready() -> void:
 	size = CARD_SIZE
 	pivot_offset = CARD_SIZE / 2.0
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	if back_texture == null:
-		back_texture = _load_texture("card_back_default.png")
+	ensure_back_texture_loaded()
 	if layer == "loose":
 		_build_loose_label()
+
+
+## back_texture used to load lazily only here, from the first CardNode's own
+## _ready() — fine for cards, but DeckVisual draws its own card-back look at
+## session start, before any CardNode has ever existed, so it fell back to a
+## plain color box until something else (a deal, a hover) finally created a
+## CardNode and triggered the load. Public so DeckVisual can force it eagerly.
+static func ensure_back_texture_loaded() -> void:
+	if back_texture == null:
+		back_texture = _load_texture("card_back_default.png")
 
 
 ## A loose card's own name sub-label — same idea as SlotVisual's per-layer
