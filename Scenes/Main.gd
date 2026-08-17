@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.19.0"
+const VERSION := "0.20.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -1007,14 +1007,19 @@ const LOOSE_TRAY_ROW_STEP := Vector2(0.0, 40.0)
 const LOOSE_TRAY_PER_ROW := 8
 
 
+func _next_tray_position() -> Vector2:
+	var loose: Dictionary = _state.get("loose", {})
+	var i: int = loose.size()
+	return LOOSE_TRAY_ORIGIN + LOOSE_TRAY_STEP * (i % LOOSE_TRAY_PER_ROW) + LOOSE_TRAY_ROW_STEP * (i / LOOSE_TRAY_PER_ROW)
+
+
 func _on_deal_loose_pressed() -> void:
 	if _deck_order.is_empty():
 		_panel.set_status("Deck is empty")
 		return
 	var card_id: String = _deck_order.pop_front()
+	var pos: Vector2 = _next_tray_position()
 	var loose: Dictionary = _state.get("loose", {})
-	var i: int = loose.size()
-	var pos: Vector2 = LOOSE_TRAY_ORIGIN + LOOSE_TRAY_STEP * (i % LOOSE_TRAY_PER_ROW) + LOOSE_TRAY_ROW_STEP * (i / LOOSE_TRAY_PER_ROW)
 	var info: Dictionary = _new_card_layer(card_id)
 	info["x"] = pos.x
 	info["y"] = pos.y
@@ -1023,6 +1028,26 @@ func _on_deal_loose_pressed() -> void:
 	_state["loose"] = loose
 	_world.set_loose(loose)
 	ApiClient.send_ws({"type": "state", "payload": _state})
+
+
+## The fallback resolution for a client's loose-card drag when the specific
+## outcome (place in slot / place freely / modify) isn't currently granted —
+## also covers the rare case of a permission being revoked mid-drag. The
+## card already exists (unlike _on_deal_loose_pressed, nothing is popped
+## from _deck_order) — it just lands at a fresh, fixed tray position rather
+## than wherever the client actually dropped it, deliberately: the point is
+## to make it obvious this wasn't their call.
+func _snap_loose_to_tray(card_id: String) -> void:
+	var loose: Dictionary = _state.get("loose", {})
+	var info: Dictionary = loose.get(card_id)
+	if info == null:
+		return
+	var pos: Vector2 = _next_tray_position()
+	info["x"] = pos.x
+	info["y"] = pos.y
+	loose[card_id] = info
+	_state["loose"] = loose
+	_world.set_loose(loose)
 
 
 ## DeckVisual's own draw gesture (hover/hold-then-drag on the deck marker) —
@@ -1084,17 +1109,21 @@ func _on_loose_drag_resolved(card_id: String, x: float, y: float, resolution: Di
 		"place":
 			_place_loose_card(card_id, resolution.get("slot_id", ""), resolution.get("layer", ""))
 		"modify":
-			var loose: Dictionary = _state.get("loose", {})
-			var info: Dictionary = loose.get(card_id)
-			if info == null:
-				return
-			info["x"] = x
-			info["y"] = y
-			info["modifies_target"] = resolution.get("target_card_id", "")
-			_world.set_loose(loose)
-			ApiClient.send_ws({"type": "state", "payload": _state})
+			_modify_loose_card(card_id, x, y, resolution.get("target_card_id", ""))
 		_:
 			_reposition_loose_card(card_id, x, y)
+
+
+func _modify_loose_card(card_id: String, x: float, y: float, target_id: String) -> void:
+	var loose: Dictionary = _state.get("loose", {})
+	var info: Dictionary = loose.get(card_id)
+	if info == null:
+		return
+	info["x"] = x
+	info["y"] = y
+	info["modifies_target"] = target_id
+	_world.set_loose(loose)
+	ApiClient.send_ws({"type": "state", "payload": _state})
 
 
 func _reposition_loose_card(card_id: String, x: float, y: float) -> void:
@@ -1435,17 +1464,65 @@ func _reset_acl_to_default() -> void:
 	_panel.sync_loose_acl(false)
 
 
-func _on_client_action_received(card_id: String, layer: String, action: String, _user_id: int) -> void:
+func _on_client_action_received(card_id: String, layer: String, action: String, _user_id: int, extra: Dictionary) -> void:
 	if card_id == "_deck":
 		match action:
 			"deal_next":
 				_on_deal_next_pressed()
 			"draw_loose":
 				_on_deal_loose_pressed()
+			"place_slot", "place_free", "modify", "loose_fallback":
+				_apply_client_loose_resolution(action, extra)
 		return
 	if action == "flip":
 		_flip_layer(card_id, layer)
 		_revoke_client_flip(card_id, layer)
+
+
+## The four ways a client's drag of a loose card (freshly drawn, or one
+## already sitting on the table — Reading-Model.md's #3/#4, "just about
+## which way the card is selected") can resolve. The client already picked
+## the action name based on its own last-known ACL (see
+## Main._on_client_loose_drag_resolved on the client side), but that view
+## could be stale by the time this arrives — a permission revoked mid-drag,
+## a slot the controller just filled — so every branch re-validates before
+## touching state, and this always ends with a fresh broadcast so the
+## requesting client's own view corrects itself even on rejection, not just
+## the controller's local one (existing rejection paths inside
+## _place_loose_card only ever re-synced the controller's own CardWorld).
+func _apply_client_loose_resolution(action: String, extra: Dictionary) -> void:
+	var loose_id: String = extra.get("loose_id", "")
+	if loose_id == "" or not _state.get("loose", {}).has(loose_id):
+		return
+	match action:
+		"place_slot":
+			_place_loose_card(loose_id, extra.get("slot_id", ""), extra.get("target_layer", "vertical"))
+		"modify":
+			var target_id: String = extra.get("target_card_id", "")
+			if _card_exists_on_table(target_id):
+				_modify_loose_card(loose_id, extra.get("x", 0.0), extra.get("y", 0.0), target_id)
+			else:
+				_snap_loose_to_tray(loose_id)
+		"place_free":
+			_reposition_loose_card(loose_id, extra.get("x", 0.0), extra.get("y", 0.0))
+		_:
+			_snap_loose_to_tray(loose_id)
+	ApiClient.send_ws({"type": "state", "payload": _state})
+
+
+func _card_exists_on_table(deck_card_id: String) -> bool:
+	if deck_card_id == "":
+		return false
+	if _state.get("loose", {}).has(deck_card_id):
+		return true
+	var cards: Dictionary = _state.get("cards", {})
+	for slot_id in cards.keys():
+		var slot: Dictionary = cards[slot_id]
+		for slot_layer in ["vertical", "horizontal"]:
+			var info = slot.get(slot_layer)
+			if info != null and info.get("deck_card_id", "") == deck_card_id:
+				return true
+	return false
 
 
 ## A client's "Can flip" grant is meant as a one-shot "let them turn this
@@ -1693,6 +1770,7 @@ func _setup_client() -> void:
 	add_child(_overlay)
 
 	_world.card_tapped.connect(_on_client_card_tapped)
+	_world.loose_drag_resolved.connect(_on_client_loose_drag_resolved)
 	_overlay.action_chosen.connect(_on_client_action_chosen)
 	ApiClient.state_received.connect(_on_state_received)
 	ApiClient.ws_closed.connect(_on_client_ws_closed)
@@ -1766,9 +1844,13 @@ func _on_state_received(cards: Dictionary, acl: Dictionary, slots: Dictionary, l
 	# nothing on the "_loose"/"loose" ACL entry — no per-card granularity,
 	# per the ask) — an empty dict here just means "not currently granted"
 	# or "nothing loose right now," identical to any other empty state.
-	# interactive=false: a client's loose cards are view-only, not
-	# draggable/modifiable the way the controller's own are.
-	_world.set_loose(loose, false)
+	# Draggable only if at least one drag resolution is actually granted —
+	# with none, there'd be nothing sensible for a drag to do (unlike the
+	# fresh-draw path, an already-loose card has nowhere to "fall back" to
+	# that isn't itself a form of moving it), so it just isn't interactive.
+	var deck_actions: Array = acl.get("_deck", {}).get("deck", {}).get("actions", [])
+	var loose_draggable: bool = deck_actions.has("place_slot") or deck_actions.has("place_free") or deck_actions.has("modify")
+	_world.set_loose(loose, loose_draggable)
 
 
 func _on_client_card_tapped(slot_id: String, layer: String) -> void:
@@ -1778,3 +1860,37 @@ func _on_client_card_tapped(slot_id: String, layer: String) -> void:
 
 func _on_client_action_chosen(slot_id: String, layer: String, action: String) -> void:
 	ApiClient.send_ws({"type": "action", "card_id": slot_id, "layer": layer, "action": action})
+
+
+## Client-side counterpart to Main's own _on_loose_drag_resolved() — the
+## client isn't authoritative, so instead of mutating state directly it
+## translates CardWorld's resolution into a request and lets the controller
+## decide (same "client proposes, controller applies and rebroadcasts"
+## pattern flip already uses). Picks the action name from the client's own
+## last-known ACL so an unpermitted resolution isn't even attempted — the
+## controller re-validates independently anyway (see
+## Main._apply_client_loose_resolution), which is also what catches the
+## rare case of a permission being revoked while this exact drag was still
+## in progress: falls back to "loose_fallback" (fixed tray position, not
+## wherever they dropped it — deliberately, so it reads as "not your call")
+## rather than silently doing nothing.
+func _on_client_loose_drag_resolved(card_id: String, x: float, y: float, resolution: Dictionary) -> void:
+	var deck_actions: Array = _last_acl.get("_deck", {}).get("deck", {}).get("actions", [])
+	var kind: String = resolution.get("kind", "reposition")
+	var msg := {"type": "action", "card_id": "_deck", "layer": "deck", "loose_id": card_id}
+	if kind == "place" and deck_actions.has("place_slot"):
+		msg["action"] = "place_slot"
+		msg["slot_id"] = resolution.get("slot_id", "")
+		msg["target_layer"] = resolution.get("layer", "vertical")
+	elif kind == "modify" and deck_actions.has("modify"):
+		msg["action"] = "modify"
+		msg["target_card_id"] = resolution.get("target_card_id", "")
+		msg["x"] = x
+		msg["y"] = y
+	elif kind == "reposition" and deck_actions.has("place_free"):
+		msg["action"] = "place_free"
+		msg["x"] = x
+		msg["y"] = y
+	else:
+		msg["action"] = "loose_fallback"
+	ApiClient.send_ws(msg)

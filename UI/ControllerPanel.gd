@@ -60,6 +60,9 @@ var _cards_form: VBoxContainer
 var _deck_visible_cb: CheckBox
 var _deck_deal_next_cb: CheckBox
 var _deck_draw_loose_cb: CheckBox
+var _deck_place_slot_cb: CheckBox
+var _deck_place_free_cb: CheckBox
+var _deck_modify_cb: CheckBox
 var _layout_visible_cb: CheckBox
 var _loose_visible_cb: CheckBox
 var _layout_menu: MenuButton
@@ -1190,16 +1193,45 @@ func _build_cards_section() -> void:
 	_deck_draw_loose_cb.text = "Can Draw Loose"
 	form.add_child(_deck_draw_loose_cb)
 
+	# Once a card is loose (freshly drawn, or already sitting there) and the
+	# client drags it, one of these three governs how the drop resolves —
+	# same rules regardless of which way the card got "into their hand".
+	# A resolution kind that isn't checked here falls back to a fixed tray
+	# position instead of wherever they actually dropped it ("loose_fallback",
+	# not a checkbox — always implicitly granted whenever the deck is
+	# interactive at all, see emit_deck_change below), which also covers the
+	# rare case of a permission being revoked mid-drag.
+	_deck_place_slot_cb = CheckBox.new()
+	_deck_place_slot_cb.text = "Can Place in Slot"
+	form.add_child(_deck_place_slot_cb)
+	_deck_place_free_cb = CheckBox.new()
+	_deck_place_free_cb.text = "Can Place Freely"
+	form.add_child(_deck_place_free_cb)
+	_deck_modify_cb = CheckBox.new()
+	_deck_modify_cb.text = "Can Modify"
+	form.add_child(_deck_modify_cb)
+
 	var emit_deck_change := func() -> void:
 		var actions: Array = []
 		if _deck_deal_next_cb.button_pressed:
 			actions.append("deal_next")
 		if _deck_draw_loose_cb.button_pressed:
 			actions.append("draw_loose")
+		if _deck_place_slot_cb.button_pressed:
+			actions.append("place_slot")
+		if _deck_place_free_cb.button_pressed:
+			actions.append("place_free")
+		if _deck_modify_cb.button_pressed:
+			actions.append("modify")
+		if actions.has("draw_loose") or actions.has("place_slot") or actions.has("place_free") or actions.has("modify"):
+			actions.append("loose_fallback")
 		deck_acl_changed.emit(_deck_visible_cb.button_pressed, actions)
 	_deck_visible_cb.toggled.connect(func(_v: bool) -> void: emit_deck_change.call())
 	_deck_deal_next_cb.toggled.connect(func(_v: bool) -> void: emit_deck_change.call())
 	_deck_draw_loose_cb.toggled.connect(func(_v: bool) -> void: emit_deck_change.call())
+	_deck_place_slot_cb.toggled.connect(func(_v: bool) -> void: emit_deck_change.call())
+	_deck_place_free_cb.toggled.connect(func(_v: bool) -> void: emit_deck_change.call())
+	_deck_modify_cb.toggled.connect(func(_v: bool) -> void: emit_deck_change.call())
 
 	form.add_child(HSeparator.new())
 
@@ -1216,6 +1248,9 @@ func sync_deck_acl(is_visible: bool, actions: Array) -> void:
 	_deck_visible_cb.set_pressed_no_signal(is_visible)
 	_deck_deal_next_cb.set_pressed_no_signal(actions.has("deal_next"))
 	_deck_draw_loose_cb.set_pressed_no_signal(actions.has("draw_loose"))
+	_deck_place_slot_cb.set_pressed_no_signal(actions.has("place_slot"))
+	_deck_place_free_cb.set_pressed_no_signal(actions.has("place_free"))
+	_deck_modify_cb.set_pressed_no_signal(actions.has("modify"))
 
 
 ## Keeps the Layout checkbox honest across a table reset (Reset/Record/End

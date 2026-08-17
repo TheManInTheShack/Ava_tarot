@@ -6,7 +6,12 @@ extends Node
 ## Adds a WebSocketPeer connection for the tarot realtime sync on top of that.
 
 signal state_received(cards: Dictionary, acl: Dictionary, slots: Dictionary, loose: Dictionary)
-signal action_received(card_id: String, layer: String, action: String, user_id: int)
+## extra: the full raw message — card_id/layer/action/user_id are pulled out
+## individually below since every existing listener only needs those, but
+## the loose-card drag resolution actions (place_slot/place_free/modify)
+## also carry loose_id/slot_id/target_layer/target_card_id/x/y, which only
+## exist in extra.
+signal action_received(card_id: String, layer: String, action: String, user_id: int, extra: Dictionary)
 signal client_joined(user_id: int, username: String)
 signal ws_opened()
 signal ws_closed()
@@ -174,7 +179,8 @@ func _handle_ws_message(raw: String) -> void:
 				String(msg.get("card_id", "")),
 				String(msg.get("layer", "vertical")),
 				String(msg.get("action", "")),
-				int(msg.get("user_id", 0))
+				int(msg.get("user_id", 0)),
+				msg
 			)
 		"client_joined":
 			client_joined.emit(int(msg.get("user_id", 0)), String(msg.get("username", "")))
