@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.17.0"
+const VERSION := "0.17.1"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -1540,6 +1540,17 @@ func _setup_client() -> void:
 	_overlay.action_chosen.connect(_on_client_action_chosen)
 	ApiClient.state_received.connect(_on_state_received)
 	ApiClient.ws_closed.connect(_on_client_ws_closed)
+
+	# Client has no ControllerPanel to show this in, but it's the only way
+	# to confirm a deploy reached the client's own build (Godot web export
+	# caches aggressively) — same reasoning as the controller panel's copy.
+	var version_label := Label.new()
+	version_label.text = "v" + VERSION
+	version_label.modulate = Color(1, 1, 1, 0.4)
+	version_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	version_label.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	version_label.position = Vector2(-60, 4)
+	add_child(version_label)
 
 	_status_label = Label.new()
 	_status_label.text = "Waiting for your reading to begin…"
