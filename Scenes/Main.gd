@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.17.1"
+const VERSION := "0.17.2"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -1310,6 +1310,27 @@ func _on_acl_changed(slot_id: String, layer: String, is_visible: bool, actions: 
 func _on_client_action_received(card_id: String, layer: String, action: String, _user_id: int) -> void:
 	if action == "flip":
 		_flip_layer(card_id, layer)
+		_revoke_client_flip(card_id, layer)
+
+
+## A client's "Can flip" grant is meant as a one-shot "let them turn this
+## one over," not a standing ability to flip it back and forth at will —
+## revoke it the instant it's used. Also syncs the controller panel's own
+## checkbox (ControllerPanel.sync_acl, same call the right-click Show/Hide
+## menu already uses to keep it honest) so it doesn't keep showing a
+## permission that's already been spent.
+func _revoke_client_flip(slot_id: String, layer: String) -> void:
+	var slot_acl: Dictionary = _acl.get(slot_id, {})
+	var layer_acl: Dictionary = slot_acl.get(layer, {})
+	var actions: Array = layer_acl.get("actions", [])
+	if not actions.has("flip"):
+		return
+	actions.erase("flip")
+	layer_acl["actions"] = actions
+	slot_acl[layer] = layer_acl
+	_acl[slot_id] = slot_acl
+	ApiClient.send_ws({"type": "acl", "payload": _acl})
+	_panel.sync_acl(slot_id, layer, layer_acl.get("visible", false), actions)
 
 
 # ── Card context menu (right-click) ─────────────────────────────────────────
