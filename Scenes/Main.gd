@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.17.2"
+const VERSION := "0.17.3"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -1596,7 +1596,13 @@ func _join_current_session() -> void:
 func _on_client_ws_closed() -> void:
 	# Controller ended the reading (or dropped) — clear the board instead of
 	# freezing on the last-seen cards, and go back to waiting for the next one.
+	# apply_state({}) alone only clears card data on the SlotVisuals that
+	# already exist — it never removes the SlotVisuals themselves (only
+	# set_slots() does that), so the empty slot outlines/glow/labels used to
+	# stay on screen indefinitely after End Reading. set_slots({}) tears
+	# them down; the next session's first state push rebuilds them fresh.
 	_last_acl = {}
+	_world.set_slots({})
 	_world.apply_state({})
 	_overlay.hide()
 	if not is_instance_valid(_status_label):
