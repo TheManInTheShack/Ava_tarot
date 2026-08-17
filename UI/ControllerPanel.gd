@@ -60,6 +60,8 @@ var _cards_form: VBoxContainer
 var _deck_visible_cb: CheckBox
 var _deck_deal_next_cb: CheckBox
 var _deck_draw_loose_cb: CheckBox
+var _deck_draw_select_cb: CheckBox
+var _deck_select_loose_cb: CheckBox
 var _deck_place_slot_cb: CheckBox
 var _deck_place_free_cb: CheckBox
 var _deck_modify_cb: CheckBox
@@ -1193,14 +1195,30 @@ func _build_cards_section() -> void:
 	_deck_draw_loose_cb.text = "Can Draw Loose"
 	form.add_child(_deck_draw_loose_cb)
 
-	# Once a card is loose (freshly drawn, or already sitting there) and the
-	# client drags it, one of these three governs how the drop resolves —
-	# same rules regardless of which way the card got "into their hand".
-	# A resolution kind that isn't checked here falls back to a fixed tray
-	# position instead of wherever they actually dropped it ("loose_fallback",
-	# not a checkbox — always implicitly granted whenever the deck is
-	# interactive at all, see emit_deck_change below), which also covers the
-	# rare case of a permission being revoked mid-drag.
+	# Two more selection methods, alongside Deal Next/Draw Loose above —
+	# these two are "selection-only": tapping either just picks a card up
+	# (begins a click-to-carry drag, no button-held-down needed — moves
+	# with the mouse until the next click), it doesn't resolve anything by
+	# itself. Draw/Select draws a fresh card and picks it up in one step
+	# (vs. Draw Loose, which draws and stops); Select Loose picks up a card
+	# already sitting on the table (shown on that card's own tap menu, not
+	# the deck's — but kept in this same Deck cluster of controls, matching
+	# how the ask grouped all of this as "deck" controls regardless).
+	_deck_draw_select_cb = CheckBox.new()
+	_deck_draw_select_cb.text = "Can Draw & Select"
+	form.add_child(_deck_draw_select_cb)
+	_deck_select_loose_cb = CheckBox.new()
+	_deck_select_loose_cb.text = "Can Select Loose"
+	form.add_child(_deck_select_loose_cb)
+
+	# Once a card is selected and the client drags it, one of these three
+	# governs how the drop resolves. A resolution kind that isn't checked
+	# here falls back to a fixed tray position instead of wherever they
+	# actually dropped it ("loose_fallback", not a checkbox — always
+	# implicitly granted whenever a drag can even start, see
+	# emit_deck_change below), which also covers the rare case of a
+	# permission being revoked mid-drag. Not buttons — these are outcomes
+	# of a drag, not commands, so they never appear in ClientOverlay.
 	_deck_place_slot_cb = CheckBox.new()
 	_deck_place_slot_cb.text = "Can Place in Slot"
 	form.add_child(_deck_place_slot_cb)
@@ -1217,18 +1235,24 @@ func _build_cards_section() -> void:
 			actions.append("deal_next")
 		if _deck_draw_loose_cb.button_pressed:
 			actions.append("draw_loose")
+		if _deck_draw_select_cb.button_pressed:
+			actions.append("draw_select")
+		if _deck_select_loose_cb.button_pressed:
+			actions.append("select_loose")
 		if _deck_place_slot_cb.button_pressed:
 			actions.append("place_slot")
 		if _deck_place_free_cb.button_pressed:
 			actions.append("place_free")
 		if _deck_modify_cb.button_pressed:
 			actions.append("modify")
-		if actions.has("draw_loose") or actions.has("place_slot") or actions.has("place_free") or actions.has("modify"):
+		if actions.has("draw_select") or actions.has("select_loose") or actions.has("place_slot") or actions.has("place_free") or actions.has("modify"):
 			actions.append("loose_fallback")
 		deck_acl_changed.emit(_deck_visible_cb.button_pressed, actions)
 	_deck_visible_cb.toggled.connect(func(_v: bool) -> void: emit_deck_change.call())
 	_deck_deal_next_cb.toggled.connect(func(_v: bool) -> void: emit_deck_change.call())
 	_deck_draw_loose_cb.toggled.connect(func(_v: bool) -> void: emit_deck_change.call())
+	_deck_draw_select_cb.toggled.connect(func(_v: bool) -> void: emit_deck_change.call())
+	_deck_select_loose_cb.toggled.connect(func(_v: bool) -> void: emit_deck_change.call())
 	_deck_place_slot_cb.toggled.connect(func(_v: bool) -> void: emit_deck_change.call())
 	_deck_place_free_cb.toggled.connect(func(_v: bool) -> void: emit_deck_change.call())
 	_deck_modify_cb.toggled.connect(func(_v: bool) -> void: emit_deck_change.call())
@@ -1248,6 +1272,8 @@ func sync_deck_acl(is_visible: bool, actions: Array) -> void:
 	_deck_visible_cb.set_pressed_no_signal(is_visible)
 	_deck_deal_next_cb.set_pressed_no_signal(actions.has("deal_next"))
 	_deck_draw_loose_cb.set_pressed_no_signal(actions.has("draw_loose"))
+	_deck_draw_select_cb.set_pressed_no_signal(actions.has("draw_select"))
+	_deck_select_loose_cb.set_pressed_no_signal(actions.has("select_loose"))
 	_deck_place_slot_cb.set_pressed_no_signal(actions.has("place_slot"))
 	_deck_place_free_cb.set_pressed_no_signal(actions.has("place_free"))
 	_deck_modify_cb.set_pressed_no_signal(actions.has("modify"))

@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.20.0"
+const VERSION := "0.21.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -40,6 +40,8 @@ var _acl: Dictionary = {"_layout": {"layout": {"visible": true, "actions": []}}}
 var _layout_visible: bool = true
 var _pending_client: Dictionary = {}   # last client_joined info, for the checkpoint
 var _last_acl: Dictionary = {}         # client mode only: most recent ACL received
+var _last_loose_ids: Dictionary = {}   # client mode only: card_id -> true, for spotting a fresh draw
+var _pending_draw_select: bool = false # client mode only: "Draw/Select Card" was tapped, waiting for the new card to arrive
 var _context_menu: Control = null      # controller mode only: the currently-open card context menu
 
 # Controller mode only: the graph-backed Layout/Slot model — see
@@ -1469,7 +1471,13 @@ func _on_client_action_received(card_id: String, layer: String, action: String, 
 		match action:
 			"deal_next":
 				_on_deal_next_pressed()
-			"draw_loose":
+			"draw_loose", "draw_select":
+				# Same underlying deal either way — draw_select is the same
+				# card landing in the same tray spot, just followed
+				# client-side by begin_loose_drag() the instant it arrives
+				# (see Main._on_state_received's client half). "select_loose"
+				# never reaches here: it's pure client-side UI (picking up a
+				# card already on the table needs no controller involvement).
 				_on_deal_loose_pressed()
 			"place_slot", "place_free", "modify", "loose_fallback":
 				_apply_client_loose_resolution(action, extra)
@@ -1844,21 +1852,78 @@ func _on_state_received(cards: Dictionary, acl: Dictionary, slots: Dictionary, l
 	# nothing on the "_loose"/"loose" ACL entry — no per-card granularity,
 	# per the ask) — an empty dict here just means "not currently granted"
 	# or "nothing loose right now," identical to any other empty state.
-	# Draggable only if at least one drag resolution is actually granted —
-	# with none, there'd be nothing sensible for a drag to do (unlike the
-	# fresh-draw path, an already-loose card has nowhere to "fall back" to
-	# that isn't itself a form of moving it), so it just isn't interactive.
+	# Interactive whenever a card could plausibly be selected/dragged at
+	# all — the tap-menu ("Select Loose Card") needs this just as much as
+	# a direct press-drag does; either way there'd be nothing for it to do
+	# with none of these granted.
 	var deck_actions: Array = acl.get("_deck", {}).get("deck", {}).get("actions", [])
-	var loose_draggable: bool = deck_actions.has("place_slot") or deck_actions.has("place_free") or deck_actions.has("modify")
+	var loose_draggable: bool = deck_actions.has("select_loose") or deck_actions.has("place_slot") or deck_actions.has("place_free") or deck_actions.has("modify")
 	_world.set_loose(loose, loose_draggable)
+
+	# "Draw/Select Card" requested a draw and is waiting to find out which
+	# card it got, so it can pick it up the instant it exists — diff
+	# against last broadcast's loose ids to find whatever's new. Rare
+	# multi-new-card race (the controller also happened to deal loose in
+	# the same moment) just grabs the first one found; acceptable.
+	if _pending_draw_select:
+		_pending_draw_select = false
+		for card_id in loose.keys():
+			if not _last_loose_ids.has(card_id):
+				_world.begin_loose_drag(card_id)
+				break
+	_last_loose_ids.clear()
+	for card_id in loose.keys():
+		_last_loose_ids[card_id] = true
+
+	# Push any update to the currently-open action bar too, not just the
+	# board — the controller could have toggled a permission out from under
+	# a menu the client already has open, and it shouldn't sit there
+	# showing stale buttons until the client happens to tap again.
+	var open_slot: String = _overlay.showing_slot()
+	if open_slot != "":
+		_overlay.show_actions(open_slot, _overlay.showing_layer(), _client_actions_for(open_slot, _overlay.showing_layer()))
+
+
+## deal_next/draw_loose/draw_select are the deck's own "definitive action"
+## buttons (tapping the deck); select_loose is a loose card's own single
+## button (tapping that card) — both live under the same "_deck"/"deck" ACL
+## entry (Reading-Model.md groups all of this as deck controls regardless
+## of what it's literally about), but neither menu shows the other's
+## button, and neither ever shows the resolution permissions
+## (place_slot/place_free/modify/loose_fallback) — those aren't commands,
+## they're outcomes of a drag, decided by CardWorld's own drop-point
+## resolution, never by a tap.
+const DECK_BUTTON_ACTIONS := ["deal_next", "draw_loose", "draw_select"]
+
+
+func _client_actions_for(slot_id: String, layer: String) -> Array:
+	if slot_id == "_deck":
+		var deck_actions: Array = _world.actions_for(slot_id, layer, _last_acl)
+		return deck_actions.filter(func(a): return DECK_BUTTON_ACTIONS.has(a))
+	if layer == "loose":
+		var deck_actions: Array = _last_acl.get("_deck", {}).get("deck", {}).get("actions", [])
+		return ["select_loose"] if deck_actions.has("select_loose") else []
+	return _world.actions_for(slot_id, layer, _last_acl)
 
 
 func _on_client_card_tapped(slot_id: String, layer: String) -> void:
-	var actions: Array = _world.actions_for(slot_id, layer, _last_acl)
-	_overlay.show_actions(slot_id, layer, actions)
+	_overlay.show_actions(slot_id, layer, _client_actions_for(slot_id, layer))
 
 
+## "select_loose" and "draw_select" are handled entirely (or almost
+## entirely) on this side rather than sent as a plain request — see each
+## branch. Everything else (flip, deal_next, draw_loose) is still just a
+## request for the controller to decide on, unchanged.
 func _on_client_action_chosen(slot_id: String, layer: String, action: String) -> void:
+	if action == "select_loose":
+		# Pure client-side UI — picking up a card already on the table
+		# needs no controller involvement, only the eventual drop does.
+		_world.begin_loose_drag(slot_id)
+		return
+	if action == "draw_select":
+		_pending_draw_select = true
+		ApiClient.send_ws({"type": "action", "card_id": "_deck", "layer": "deck", "action": "draw_select"})
+		return
 	ApiClient.send_ws({"type": "action", "card_id": slot_id, "layer": layer, "action": action})
 
 

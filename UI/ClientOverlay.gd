@@ -32,6 +32,17 @@ func _ready() -> void:
 	hide()
 
 
+## So a caller can refresh the currently-open bar in place when permissions
+## change server-side, without the client having to re-tap first — see
+## Main.gd's _on_state_received.
+func showing_slot() -> String:
+	return _current_slot if visible else ""
+
+
+func showing_layer() -> String:
+	return _current_layer
+
+
 func show_actions(slot_id: String, layer: String, actions: Array) -> void:
 	_current_slot = slot_id
 	_current_layer = layer
@@ -70,6 +81,10 @@ func _label_for(action: String) -> String:
 			return "Deal Next"
 		"draw_loose":
 			return "Draw Card"
+		"draw_select":
+			return "Draw/Select Card"
+		"select_loose":
+			return "Select Loose Card"
 		_:
 			return action.capitalize()
 
