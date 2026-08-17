@@ -651,10 +651,18 @@ func begin_loose_drag(card_id: String) -> void:
 ## controlled independently, per Meta/Reading-Model.md.
 func apply_state(cards: Dictionary, acl: Dictionary = {}) -> void:
 	if is_client:
-		# "_deck"/"deck" is a pseudo slot_id/layer pair, not a real one —
-		# reuses the exact same ACL shape as a card layer so actions_for()
-		# needs no special-casing when the deck marker itself is tapped.
+		# "_deck"/"deck" and "_layout"/"layout" are pseudo slot_id/layer
+		# pairs, not real ones — reuses the exact same ACL shape as a card
+		# layer so actions_for() needs no special-casing when the deck
+		# marker itself is tapped. "_layout" gates the SlotVisuals'
+		# existence-on-screen as a whole (the empty table shape — glow,
+		# halo, name labels), independent of whether any specific card in
+		# them is individually visible; per-layer ACL below still narrows
+		# further which cards show once the table itself is visible.
 		_deck_visual.visible = acl.get("_deck", {}).get("deck", {}).get("visible", false)
+		var layout_visible: bool = acl.get("_layout", {}).get("layout", {}).get("visible", false)
+		for visual in _slot_visuals.values():
+			visual.visible = layout_visible
 	for slot_id in _slot_visuals.keys():
 		var visual: SlotVisual = _slot_visuals[slot_id]
 		var slot_info: Dictionary = cards.get(slot_id, {})
@@ -673,10 +681,12 @@ func apply_state(cards: Dictionary, acl: Dictionary = {}) -> void:
 
 ## loose: {deck_card_id: {"name","face_up","orientation","x","y",
 ## "modifies_target": deck_card_id|""}}. Untethered cards dealt via Deal
-## Loose — controller-only for now (no client ACL modeled yet, see
-## grant-api's _filter_state_for_client, which drops "loose" from what a
-## client ever receives). Always interactive: no ACL to gate against.
-func set_loose(loose: Dictionary) -> void:
+## Loose. interactive defaults true (every existing controller-side call
+## site) — the client's own call passes false: loose cards there are a
+## single bulk "visible as a whole" ACL toggle (see "_loose"/"loose" in
+## apply_state()'s sibling handling), not individually draggable/
+## modifiable the way the controller's own loose cards are.
+func set_loose(loose: Dictionary, interactive: bool = true) -> void:
 	var seen: Dictionary = {}
 	for card_id in loose.keys():
 		var info: Dictionary = loose[card_id]
@@ -700,7 +710,7 @@ func set_loose(loose: Dictionary) -> void:
 		node.set_face_up(info.get("face_up", false))
 		node.set_orientation(info.get("orientation", "upright"))
 		node.set_image(info.get("image", ""))
-		node.set_interactive(true)
+		node.set_interactive(interactive)
 
 	for card_id in _loose_nodes.keys().duplicate():
 		if not seen.has(card_id):

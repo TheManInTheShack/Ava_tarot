@@ -19,6 +19,8 @@ signal acl_changed(slot_id: String, layer: String, is_visible: bool, actions: Ar
 signal deck_acl_changed(is_visible: bool, actions: Array)
 signal show_all_pressed()
 signal hide_all_pressed()
+signal layout_acl_changed(is_visible: bool)
+signal loose_acl_changed(is_visible: bool)
 signal layout_selected(layout_id: String)
 signal layout_created(name: String)
 signal layout_deleted(layout_id: String)
@@ -58,6 +60,8 @@ var _cards_form: VBoxContainer
 var _deck_visible_cb: CheckBox
 var _deck_deal_next_cb: CheckBox
 var _deck_draw_loose_cb: CheckBox
+var _layout_visible_cb: CheckBox
+var _loose_visible_cb: CheckBox
 var _layout_menu: MenuButton
 var _layout_modify_btn: Button
 var _layout_new_row: HBoxContainer
@@ -1140,6 +1144,33 @@ func _build_cards_section() -> void:
 
 	form.add_child(HSeparator.new())
 
+	# Layout/Loose — Reading-Model.md: everything on the table except the
+	# deck is a child of the Layout. Layout's own row gates whether the
+	# client sees the table shape at all (the empty slot glow/halo/labels,
+	# independent of whether any specific card is individually visible);
+	# unchecking it also forces every per-slot row and the Loose row off
+	# (Main._cascade_layout_off()) so a client can't be left seeing a lone
+	# card floating with no table around it. Starts checked — "practically
+	# it would begin in the 'on' state" per the ask.
+	var layout_label := Label.new()
+	layout_label.text = "Layout"
+	form.add_child(layout_label)
+	_layout_visible_cb = CheckBox.new()
+	_layout_visible_cb.text = "Visible"
+	_layout_visible_cb.button_pressed = true
+	_layout_visible_cb.toggled.connect(func(v: bool) -> void: layout_acl_changed.emit(v))
+	form.add_child(_layout_visible_cb)
+
+	var loose_label := Label.new()
+	loose_label.text = "Loose Cards"
+	form.add_child(loose_label)
+	_loose_visible_cb = CheckBox.new()
+	_loose_visible_cb.text = "Visible"
+	_loose_visible_cb.toggled.connect(func(v: bool) -> void: loose_acl_changed.emit(v))
+	form.add_child(_loose_visible_cb)
+
+	form.add_child(HSeparator.new())
+
 	# Deck row — state-independent (the deck marker isn't tied to the active
 	# layout's slots the way the rows below are), so it lives here as a
 	# fixed row rather than inside _cards_form, which _refresh_cards_section
@@ -1185,6 +1216,19 @@ func sync_deck_acl(is_visible: bool, actions: Array) -> void:
 	_deck_visible_cb.set_pressed_no_signal(is_visible)
 	_deck_deal_next_cb.set_pressed_no_signal(actions.has("deal_next"))
 	_deck_draw_loose_cb.set_pressed_no_signal(actions.has("draw_loose"))
+
+
+## Keeps the Layout checkbox honest across a table reset (Reset/Record/End
+## restore it to whatever _layout_visible currently is, not unconditionally
+## true) — this panel's own row is the only other writer.
+func sync_layout_acl(is_visible: bool) -> void:
+	_layout_visible_cb.set_pressed_no_signal(is_visible)
+
+
+## Keeps the Loose checkbox honest when it changes from elsewhere (a table
+## reset, or Layout's own off-cascade) instead of from this panel's row.
+func sync_loose_acl(is_visible: bool) -> void:
+	_loose_visible_cb.set_pressed_no_signal(is_visible)
 
 
 ## Rows are data-driven off the active Layout's real Slot list (set_slots()),

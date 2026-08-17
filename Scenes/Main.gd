@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.18.0"
+const VERSION := "0.19.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -27,7 +27,17 @@ var _overlay: ClientOverlay
 var _status_label: Label
 
 var _state: Dictionary = {"cards": {}, "loose": {}}
-var _acl: Dictionary = {}
+## Layout defaults visible from the very first moment _acl exists — must
+## match _layout_visible's own default below, or the very first session
+## after a fresh controller boot (before any Reset/Record/End has ever run
+## _reset_acl_to_default()) would start with the table invisible again,
+## the exact bug this whole feature exists to fix.
+var _acl: Dictionary = {"_layout": {"layout": {"visible": true, "actions": []}}}
+## Persists across table resets (Reset/Record/End), unlike the rest of
+## _acl — "practically it begins in the 'on' state" per Reading-Model.md's
+## Layout item, but the controller can still choose to leave it off across
+## readings once turned off. See _reset_acl_to_default().
+var _layout_visible: bool = true
 var _pending_client: Dictionary = {}   # last client_joined info, for the checkpoint
 var _last_acl: Dictionary = {}         # client mode only: most recent ACL received
 var _context_menu: Control = null      # controller mode only: the currently-open card context menu
@@ -147,6 +157,8 @@ func _setup_controller() -> void:
 	_panel.deck_acl_changed.connect(_on_deck_acl_changed)
 	_panel.show_all_pressed.connect(_on_show_all_pressed)
 	_panel.hide_all_pressed.connect(_on_hide_all_pressed)
+	_panel.layout_acl_changed.connect(_on_layout_acl_changed)
+	_panel.loose_acl_changed.connect(_on_loose_acl_changed)
 	_panel.layout_selected.connect(_on_layout_selected)
 	_panel.layout_created.connect(_on_layout_created)
 	_panel.layout_deleted.connect(_on_layout_deleted)
@@ -335,7 +347,7 @@ func _refresh_deck_slot_availability() -> void:
 ## and on switching to a different existing layout (same staleness problem).
 func _reset_table() -> void:
 	_state = {"cards": {}, "loose": {}}
-	_acl = {}
+	_reset_acl_to_default()
 	_world.apply_state(_state["cards"])
 	_world.set_loose(_state["loose"])
 	ApiClient.send_ws({"type": "state", "payload": _state})
@@ -655,6 +667,16 @@ func _on_start_pressed() -> void:
 	_panel.set_in_session(true)
 	_panel.set_status("Reading in progress — %s" % (client_display if client_display else client_username))
 	_refresh_traits_panel()  # focus is now this session's client, not the picker
+	# send_ws() silently no-ops until the WebSocketPeer actually reaches
+	# STATE_OPEN — connect_to_url() only starts the handshake, it doesn't
+	# wait for it. Sending immediately here was a real bug, not just
+	# theoretical: it dropped this very push on the floor essentially every
+	# time, so a client joining before the controller's next unrelated
+	# action (deal/flip/ACL edit) saw no layout at all — the server's own
+	# session["state"] never got a first real value that included slots
+	# until whatever later action happened to be the first send_ws() call
+	# that landed after the socket had had time to actually open.
+	await ApiClient.ws_opened
 	# Push current state immediately so a reconnect doesn't show stale data.
 	ApiClient.send_ws({"type": "state", "payload": _state})
 	ApiClient.send_ws({"type": "acl", "payload": _acl})
@@ -685,7 +707,7 @@ func _on_end_pressed() -> void:
 		await get_tree().create_timer(0.5).timeout
 		await _resync_graph()
 	_state = {"cards": {}, "loose": {}}
-	_acl = {}
+	_reset_acl_to_default()
 	_pending_client = {}
 	_graph_session_node_id = ""
 	# Push the cleared state before disconnecting so any connected client's
@@ -713,7 +735,7 @@ func _on_record_pressed() -> void:
 	await get_tree().create_timer(0.5).timeout
 	await _resync_graph()
 	_state = {"cards": {}, "loose": {}}
-	_acl = {}
+	_reset_acl_to_default()
 	ApiClient.send_ws({"type": "state", "payload": _state})
 	ApiClient.send_ws({"type": "acl", "payload": _acl})
 	_world.apply_state(_state["cards"])
@@ -1336,6 +1358,20 @@ func _on_hide_all_pressed() -> void:
 
 
 func _bulk_set_visibility(is_visible: bool) -> void:
+	_set_all_slot_layers_visible(is_visible)
+	var deck_acl: Dictionary = _acl.get("_deck", {})
+	var deck_layer_acl: Dictionary = deck_acl.get("deck", {"visible": false, "actions": []})
+	deck_layer_acl["visible"] = is_visible
+	deck_acl["deck"] = deck_layer_acl
+	_acl["_deck"] = deck_acl
+	_panel.sync_deck_acl(is_visible, deck_layer_acl.get("actions", []))
+	ApiClient.send_ws({"type": "acl", "payload": _acl})
+
+
+## Shared by "Hide All"/"Show All" (deck included) and Layout's off-cascade
+## (deck deliberately excluded — see _cascade_layout_off()) — every
+## currently-fillable layer's own "visible" flag, actions left untouched.
+func _set_all_slot_layers_visible(is_visible: bool) -> void:
 	var active_slots := _slots_for_layout(_active_layout_id)
 	for slot_id in active_slots.keys():
 		for layer in ["vertical", "horizontal"]:
@@ -1347,13 +1383,56 @@ func _bulk_set_visibility(is_visible: bool) -> void:
 			slot_acl[layer] = layer_acl
 			_acl[slot_id] = slot_acl
 			_panel.sync_acl(slot_id, layer, is_visible, layer_acl.get("actions", []))
-	var deck_acl: Dictionary = _acl.get("_deck", {})
-	var deck_layer_acl: Dictionary = deck_acl.get("deck", {"visible": false, "actions": []})
-	deck_layer_acl["visible"] = is_visible
-	deck_acl["deck"] = deck_layer_acl
-	_acl["_deck"] = deck_acl
-	_panel.sync_deck_acl(is_visible, deck_layer_acl.get("actions", []))
+
+
+func _on_layout_acl_changed(is_visible: bool) -> void:
+	_layout_visible = is_visible
+	_set_layout_acl(is_visible)
+	if not is_visible:
+		_cascade_layout_off()
 	ApiClient.send_ws({"type": "acl", "payload": _acl})
+
+
+func _set_layout_acl(is_visible: bool) -> void:
+	var layout_acl: Dictionary = _acl.get("_layout", {})
+	layout_acl["layout"] = {"visible": is_visible, "actions": []}
+	_acl["_layout"] = layout_acl
+
+
+## Layout is the table itself (Reading-Model.md: everything except the deck
+## is a child of it) — turning it off must take its children down too, or a
+## client with some card's own "Visible" still checked would keep seeing
+## that card floating with no table around it. Deck is deliberately
+## untouched: it's the one non-layout item, unaffected by Layout on/off.
+## One-directional by design: turning Layout back on only reveals the empty
+## table shape again, it doesn't restore whatever it just turned off.
+func _cascade_layout_off() -> void:
+	_set_all_slot_layers_visible(false)
+	_set_loose_acl(false)
+	_panel.sync_loose_acl(false)
+
+
+func _on_loose_acl_changed(is_visible: bool) -> void:
+	_set_loose_acl(is_visible)
+	ApiClient.send_ws({"type": "acl", "payload": _acl})
+
+
+func _set_loose_acl(is_visible: bool) -> void:
+	var loose_acl: Dictionary = _acl.get("_loose", {})
+	loose_acl["loose"] = {"visible": is_visible, "actions": []}
+	_acl["_loose"] = loose_acl
+
+
+## Shared by every place that wipes _acl back to a blank slate (Reset,
+## Record Scenario, End Reading) — Layout's own on/off choice persists
+## across that wipe (see _layout_visible's own doc comment), everything
+## else (Loose included, despite being Layout's other child) reverts to
+## off like the rest of a fresh _acl always has.
+func _reset_acl_to_default() -> void:
+	_acl = {}
+	_set_layout_acl(_layout_visible)
+	_panel.sync_layout_acl(_layout_visible)
+	_panel.sync_loose_acl(false)
 
 
 func _on_client_action_received(card_id: String, layer: String, action: String, _user_id: int) -> void:
@@ -1660,6 +1739,7 @@ func _on_client_ws_closed() -> void:
 	_last_acl = {}
 	_world.set_slots({})
 	_world.apply_state({})
+	_world.set_loose({}, false)
 	_overlay.hide()
 	if not is_instance_valid(_status_label):
 		_status_label = Label.new()
@@ -1669,7 +1749,7 @@ func _on_client_ws_closed() -> void:
 	_join_current_session()
 
 
-func _on_state_received(cards: Dictionary, acl: Dictionary, slots: Dictionary) -> void:
+func _on_state_received(cards: Dictionary, acl: Dictionary, slots: Dictionary, loose: Dictionary) -> void:
 	_last_acl = acl
 	# Client has no graph read access of its own (public role, no
 	# graph_access grant) — this is the only way it ever learns slot
@@ -1682,6 +1762,13 @@ func _on_state_received(cards: Dictionary, acl: Dictionary, slots: Dictionary) -
 	if not slots.is_empty():
 		_world.set_slots(slots)
 	_world.apply_state(cards, acl)
+	# grant-api already gates the whole "loose" dict server-side (all-or-
+	# nothing on the "_loose"/"loose" ACL entry — no per-card granularity,
+	# per the ask) — an empty dict here just means "not currently granted"
+	# or "nothing loose right now," identical to any other empty state.
+	# interactive=false: a client's loose cards are view-only, not
+	# draggable/modifiable the way the controller's own are.
+	_world.set_loose(loose, false)
 
 
 func _on_client_card_tapped(slot_id: String, layer: String) -> void:

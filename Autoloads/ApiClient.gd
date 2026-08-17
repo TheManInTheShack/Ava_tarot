@@ -5,7 +5,7 @@ extends Node
 ## auth is handled implicitly by the browser cookie — no manual token handling.
 ## Adds a WebSocketPeer connection for the tarot realtime sync on top of that.
 
-signal state_received(cards: Dictionary, acl: Dictionary, slots: Dictionary)
+signal state_received(cards: Dictionary, acl: Dictionary, slots: Dictionary, loose: Dictionary)
 signal action_received(card_id: String, layer: String, action: String, user_id: int)
 signal client_joined(user_id: int, username: String)
 signal ws_opened()
@@ -168,7 +168,7 @@ func _handle_ws_message(raw: String) -> void:
 	match msg.get("type", ""):
 		"state":
 			var payload: Dictionary = msg.get("payload", {})
-			state_received.emit(payload.get("cards", {}), msg.get("acl", {}), payload.get("slots", {}))
+			state_received.emit(payload.get("cards", {}), msg.get("acl", {}), payload.get("slots", {}), payload.get("loose", {}))
 		"action":
 			action_received.emit(
 				String(msg.get("card_id", "")),
