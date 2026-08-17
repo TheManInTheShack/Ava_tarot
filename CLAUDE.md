@@ -1,10 +1,12 @@
 # CLAUDE.md — Paratarot (formerly Ava Tarot)
 
-Read this first in any new session. It reflects the current built state. For
-the in-progress redesign (Layout/Slot/Session graph model, deck & modifier
-mechanics), see `Meta/Reading-Model.md` and the Next Session Candidates
-roadmap below — neither is built yet, both are the design this file's
-"Current State" section will be rewritten against as each step lands.
+Read this first in any new session. It reflects the current built state.
+`Meta/Reading-Model.md`'s Layout/Slot/Session graph model and deck & modifier
+mechanics — the redesign this file used to describe as "in-progress" — are
+now fully built (all 7 Next Session Candidates roadmap steps below are done,
+Background's own half of Step 6 and deck client access excepted, both
+explicitly still open). Read the roadmap section for the step-by-step history
+and "Non-obvious bugs" for hard-won lessons before touching drag/drop code.
 
 ---
 
@@ -26,23 +28,27 @@ consulting, but nothing there should be built on directly.
 
 ---
 
-## Current State (as of 2026-08-14)
+## Current State (as of 2026-08-16)
 
 **The 2026-08-08 baseline** (session start → deal → controller toggles
 visibility/flip → client sees it → checkpoint on End Reading) **was verified
-working end-to-end on avareads.com by hands-on testing.** Steps 1–4, 5
-(piece 1 of 2), 6 (Traits half), and 7 of the `Meta/Reading-Model.md`
-roadmap landed 2026-08-11 through 2026-08-13, deployed but not
-interactively tested at the time. **The Layout editor and Traits manager
-have since had real hands-on testing (2026-08-14)** — several real bugs
-only surfaced that way and got fixed live: a squeeze bug that made the Add
-Slot button, per-slot rows, and Client Access's checkboxes silently
-near-unclickable (rows demanding more width than the panel's fixed 320px
-had to give), the new-layout mod-mode flash, and the Traits section's
-whole assignment UI got redesigned around what actually turned out to be
-usable versus what looked reasonable on paper. Deal Loose/Modify Card's
-connecting-line rendering specifically is still untested — it's the one
-piece of new drawing code from the earlier batch nobody's looked at yet.
+working end-to-end on avareads.com by hands-on testing.** Steps 1–7 of the
+`Meta/Reading-Model.md` roadmap are now all done and hands-on tested,
+including Step 5's full drag-and-drop modifier mechanic (below) — the
+whole roadmap that kicked off this rebuild is complete. Everything in this
+section has been through live, interactive testing on avareads.com, not
+just deployed-and-assumed — this project's hardest bugs (see "Non-obvious
+bugs" at the bottom) only ever surfaced that way.
+
+**2026-08-16 session, by far the largest single batch since the rebuild:**
+real card drag-and-drop (Step 5's other half), a per-slot Horizontal on/off
+toggle, live amber/green drop hints, an edge-drag rework of the right-click
+modify flow, loose card labels, a whole new physical deck object with its
+own hover/hold-to-draw gesture, and — the hard part — a genuine, fully
+diagnosed root-cause bug hunt (not a workaround) that took many rounds of
+live screenshots and a temporary on-screen diagnostic overlay to pin down.
+See "Non-obvious bugs" below for the postmortem; it's worth reading before
+touching any of `CardWorld._resolve_loose_drop()`/`_set_drag_hover()`.
 
 ### What works
 - Public-tier login (`client_test` account, role `public`) → auto-redirects
@@ -241,30 +247,147 @@ piece of new drawing code from the earlier batch nobody's looked at yet.
   property) — written through the same access-checked graph-write path
   every other Grant app uses, into the existing `tarot-deck` graph (grows
   in place, doesn't create a new graph per reading)
+- **Card dragging + the modifier mechanic, drag path (Step 5 piece 2, done
+  2026-08-16):** dragging a loose card resolves live to one of three
+  outcomes, matching `Meta/Reading-Model.md`'s design exactly — dropped on
+  an empty Vertical → fills it; Vertical filled/Horizontal open → fills
+  Horizontal; dropped on an occupied card → creates a `MODIFIES` edge to it.
+  A live hover preview shows which outcome you're over *before* you
+  release: green outline on the empty layer you'd fill, amber outline on
+  the occupied card you'd modify — amber always wins over green when both
+  could apply. Per live feedback, Horizontal's own footprint (wider than
+  Vertical's, from the 90° crossing rotation) takes priority to fill it
+  once Vertical is occupied — dragging to the middle of a partially-filled
+  slot fills Horizontal by default, not the exception. When multiple slots'
+  interactive footprints could plausibly apply to the same drop point
+  (Horizontal's real 280px width exceeds the 180px anti-overlap spacing
+  rule slots are only guaranteed apart by), resolution picks whichever
+  slot's own pivot is physically closest to the point — see "Non-obvious
+  bugs" below for why this needed several attempts.
+- **Right-click "Modify Card" (Reading-Model.md path 1) reworked as an edge
+  drag, not a text list (2026-08-16):** clicking it grabs the loose end of
+  the would-be edge and lets it follow the mouse, with the same amber
+  highlight the card-drag path uses picking out whatever's hovered (any
+  on-table card, loose or slotted); the next click/right-click/Escape
+  resolves or cancels it. The old list named every candidate card by name
+  even face-down, which the new path never does.
+- **Per-slot "Horizontal on" checkbox** in the Layout editor (structural
+  `horizontal_enabled` Slot property, defaults true). Off means a filled
+  Vertical reads as the whole slot being full: Deal Next/Deal to Slot/the
+  drag-drop resolution all stop offering that slot's Horizontal, and
+  dragging a loose card over the Vertical shows the modify highlight
+  instead of falling into a Horizontal nobody wants used for that spread
+  position.
+- **Right-click "Remove from Slot"** on a slotted card — sends it back to
+  loose (still a legitimate on-table card, not destroyed) rather than into
+  the deck. A Vertical can't be pulled out from under a filled Horizontal;
+  the menu omits the option in that case rather than showing and rejecting it.
+- **Tap-to-reveal is one-way**, both for slotted and loose cards: a plain
+  tap only ever turns a card face-up, never back down — turning it back
+  over is a deliberate act via the right-click "Turn" menu. (Originally a
+  bug report: tapping a card to switch which of Vertical/Horizontal was on
+  top was also toggling it back face-down as a side effect.)
+- **Loose cards show their own name label** below them once face-up
+  (`(inv)` suffix when reversed), same idea as the slotted sub-labels but
+  simpler — a plain child Label that travels with the card for free on any
+  drag via Godot's own transform composition, counter-rotated so it stays
+  upright and anchored below the card regardless of orientation.
+- **A physical deck object (`Nodes/DeckVisual.gd`, 2026-08-16, controller-
+  only)** — a small stack in the table's upper-right, draggable to
+  reposition. Hovering with no button, or pressing and holding still, both
+  "prime" it after 1s (highlight + a gentle top-card lift loop); from
+  primed, any further motion or a release peels a card off and hands
+  control to the same loose-card drag machinery above, already following
+  the cursor — matches genre convention (iOS-style tap/long-press/drag,
+  Solitaire/Tabletop-Simulator-style "drag off the stock pile to draw").
+  Right-click menu: Deal Next, Deal Loose, Draw (menu-only shortcut to the
+  same end state as the hold gesture, skipping the wait), Shuffle, Reset.
+  The client-facing side of this — visibility, letting a client "pick" a
+  card, separate place/modify permission bits — is a deliberately deferred
+  follow-up piece needing its own client-role testing pass.
 
 ### What is not yet done (deliberately deferred, not forgotten)
-- Card dragging / freeform placement (cards are still fixed to numeric-field-
-  set positions or the Deck section's controls — see Step 5 piece 2 below.
-  Slot dragging in the Layout editor's mod mode landed 2026-08-14, live at a
-  computer with the user testing in real time, so the risk that held card
-  dragging back doesn't apply the same way anymore — but it's a separate
-  interaction with its own drop-resolution logic, not just "reuse the slot
-  version," so still worth its own pass rather than assuming it's covered)
+- **Deck client access** — visibility toggle, a "pick" ACL action so a
+  client can draw from the deck marker themselves, and separate bits
+  gating whether a client-drawn card can be placed in a slot vs. used to
+  modify. This is "Piece B" of the deck feature (Piece A, controller-only,
+  landed 2026-08-16) — needs client-role testing, which this project hasn't
+  done at all yet this whole rebuild (every session so far has only
+  hands-on-tested the controller side).
 - Background (Step 6's other half) — per-Layout fill-color/image, not started
 - Celtic Cross / Ava's Celtic Cross layouts (buildable now via the Layout
   editor, just not pre-seeded)
 - `point` and `pick` ACL actions (protocol supports them; only `flip` is
-  wired up client-side)
+  wired up client-side — "pick" is specifically needed for deck client access above)
 - Card info/meanings panel, reading history browser
-- Card art on the table itself (deck data has `image` filenames in
-  `Assets/Images/`, but `CardNode._draw()` currently only renders a
-  placeholder + name text, not the actual card texture)
 - Stats-model nodes as their own queryable type (reading metrics currently
   just live as empty properties on the Scenario node)
 - Kuzu-as-primary-store migration on the Grant side (separate, near-term
   session — see `Grant/docz/infrastructure/data-architecture.md`) — until
   then, cross-reading trend queries over many Scenario nodes are JSONB-blob
   full-loads, fine at current scale, not built yet anyway
+
+---
+
+## Non-obvious bugs worth knowing before touching drag/drop code
+
+The 2026-08-16 drag-and-drop work went through several real, distinct bugs
+before landing — recorded here because a couple of them are the kind of
+thing that's easy to reintroduce by "obvious" refactors:
+
+1. **`CardNode.visible` cannot mean two things at once.** The root cause of
+   the session's hardest bug: `CardWorld._resolve_loose_drop()` used
+   `CardNode.visible` to mean "this layer genuinely holds a dealt card,"
+   but the drag-hover preview (`_set_drag_hover()`'s "place" branch) *also*
+   sets `.visible = true` on an empty layer purely to render its green
+   outline. Hovering an empty Vertical → correctly resolves to "place
+   Vertical" → the preview sets `visible = true` to draw the hint → the
+   very next motion frame's resolve call reads that same flag and now
+   believes Vertical is filled → flips to offering Horizontal → clearing
+   the stale Vertical hint sets it back to `false` → flips back to Vertical.
+   A continuous, self-inflicted oscillation, entirely from one flag serving
+   two callers with different meanings. Fixed by adding `CardNode.has_data`
+   — set only by `SlotVisual.set_layer()` from real state data, never
+   touched by hover/highlight code. Any future "is this layer filled" check
+   must use `has_data`, never `visible`.
+2. **A layer's crossing rotation must be set at creation, not first use.**
+   `SlotVisual._build_card_layer()` used to set `node.layer = layer` as a
+   raw property assignment, which skips `CardNode.set_layer()`'s call to
+   `_update_rotation()`. A Horizontal layer that had never been dealt into
+   sat at rotation 0 (the Control default) instead of 90° until the first
+   real deal called `set_orientation()` (which also updates rotation) —
+   until then both its hit-test rect and its drop-hint outline were in the
+   wrong, unrotated place. Always construct a layer via `set_layer()`,
+   never a raw `.layer =` assignment.
+3. **A fixed coarse gate can't both cover Horizontal's real footprint and
+   avoid a close neighbor's.** Two attempts at gating `_resolve_loose_drop()`
+   with a per-slot bounding rect both failed on a real (if tightly-spaced)
+   layout: Horizontal's actual rotated footprint is 280px wide, wider than
+   the 180px `CardNode.slot_collision_rect()` (sized off Vertical alone)
+   guarantees between two slots when *dragging* one — so two "legally"
+   spaced slots can still have overlapping Horizontal hit zones. The fix
+   that actually held: don't gate at all — collect every slot the point
+   precisely hits as a candidate, then pick whichever candidate's own pivot
+   is physically closest to the point ("nearest slot wins").
+4. **Reversal (180°) flips both axes around the pivot, not just one.** Any
+   anchor-point math for a card (the loose label's position, the modify-
+   link endpoints) that needs to stay put on the table regardless of
+   `orientation == "reversed"` must inverse-transform a *fixed, upright*
+   target point through the card's actual rotation — not hand-derive a
+   separate "reversed" offset by eyeballing one axis, which is exactly the
+   mistake that shipped once and sent the loose label sideways instead of
+   staying below the card. `CardNode.get_layer_transform()` (drops rotation
+   to just the structural `layer_angle()`, ignoring `reversed_angle()`) is
+   the vetted pattern for "where does this sit ignoring reversal."
+5. **When a live screenshot contradicts your read of the code, add a debug
+   overlay before guessing again.** Several rounds of this investigation
+   were spent misreading rotated phone photos of the screen (aspect ratio
+   and relative position are both genuinely hard to judge from a photo
+   taken at an arbitrary angle). A temporary on-screen text readout
+   (`CardWorld._debug_resolution_text`, removed once bug #1 above was
+   found) that printed the actual resolved slot/layer/flags settled every
+   remaining ambiguity in one screenshot instead of several more rounds of
+   guessing from shape.
 
 ---
 
@@ -285,10 +408,17 @@ ava_tarot/
 │   └── Main.gd                 ← orchestrator: mode detection from /auth/me, controller and
 │                                  client setup/logic both live here
 ├── Nodes/
-│   ├── CardNode.gd             ← single card: face up/down _draw(), tap-to-act, no drag yet
+│   ├── CardNode.gd             ← single card layer: face up/down _draw(), tap-to-act; loose
+│   │                              layers additionally draggable + get their own name label
+│   ├── SlotVisual.gd           ← one Slot's Vertical+Horizontal CardNodes + name/sub-labels +
+│   │                              glow/halo as one cohesive node, real graph-backed positions
+│   ├── DeckVisual.gd           ← the physical deck object (2026-08-16) — draggable stack,
+│   │                              hover/hold-to-draw gesture, right-click menu
 │   └── CardWorld.gd            ← the card table; pan/zoom container technique ported from
 │                                  Paradotz's Editor.gd (not wired to input yet — not needed
-│                                  for one fixed 3-slot layout that fits on screen)
+│                                  for one fixed 3-slot layout that fits on screen). Owns all
+│                                  drag/drop resolution (loose-card place/modify, edge-drag
+│                                  Modify Card, slot-marker dragging, the deck marker's own drag)
 ├── UI/
 │   ├── ControllerPanel.gd      ← rollup-panel pattern ported from Paradotz's GraphPanel.gd;
 │   │                              Layout / Session / Deck / Client Access sections
@@ -304,7 +434,9 @@ ava_tarot/
 │                                  same generic endpoints Paradotz itself edits a graph through)
 ├── Meta/                      ← Card-Schema.md, Graph-Index.md, Edge-Types.md, Reading-Model.md
 │                                  (vault documentation, unchanged by the rewrite)
-├── Assets/Images/             ← 78 card PNGs + card_back_default.png (not yet drawn on the table)
+├── Assets/Images/             ← 78 card PNGs + card_back_default.png (drawn on the table and
+│                                  the deck marker; falls back to a name-text/color placeholder
+│                                  for any card whose art isn't resolved)
 ├── tools/
 │   └── fetch_rider_waite.py   ← card-art fetch utility (kept; generate_readings.py retired,
 │                                  was tied to the old JSON reading format)
@@ -329,7 +461,7 @@ Grant repo's `docz/infrastructure/auth-service.md` and `data-architecture.md`).
 | Controller stays authoritative | Client sends `action` requests only; controller applies them and rebroadcasts `state` — no client-side state mutation |
 | No per-move persistence | WebSocket relay is in-process/ephemeral; Postgres is only touched at explicit checkpoints (session save), via the same access-checked path every other graph write uses |
 | One graph, grows in place | Reading data lands in the existing `tarot-deck` graph as Client/Scenario/PLACED nodes+edges, not a new graph per reading — keeps it one thing always open-able in Paradotz |
-| Code-first UI, no hand-authored complex scenes | `ControllerPanel`/`ClientOverlay`/`CardWorld`/`CardNode` are all `class_name` scripts instantiated via `.new()`, not `.tscn` hierarchies — only `Scenes/Main.tscn` is a real scene file, kept to a single root node |
+| Code-first UI, no hand-authored complex scenes | `ControllerPanel`/`ClientOverlay`/`CardWorld`/`CardNode`/`SlotVisual`/`DeckVisual` are all `class_name` scripts instantiated via `.new()`, not `.tscn` hierarchies — only `Scenes/Main.tscn` is a real scene file, kept to a single root node |
 | Paradotz's web-export conventions carried over | GL Compatibility renderer, `canvas_items` stretch, MenuButton-only (not OptionButton), Latin-1/ASCII-only button text — all hard-won lessons from Paradotz's HTML5 export, not rediscovered here |
 
 ---
@@ -367,7 +499,11 @@ browser. Also added 2026-08-11: `/paratarot/`'s nginx location was missing
 the `Cache-Control: no-cache` header `/paradotz/` already has for the exact
 same reason (Godot reuses `index.js`/`.pck`/`.wasm` filenames on every
 build, so browsers silently serve a stale cached copy after a deploy) — this
-had been live and un-fixed since Paratarot shipped.
+had been live and un-fixed since Paratarot shipped. `v0.16.1` as of the
+2026-08-16 session (started that session at `v0.13.6`) — every fix in this
+file's "Non-obvious bugs" section landed as its own version bump, deployed
+and hands-on re-tested individually rather than batched, which is how a
+diagnostic-overlay screenshot could be tied to an exact build.
 
 ---
 
@@ -457,15 +593,23 @@ pluggable wherever convenient once their own prerequisites are met.
    Deal to Slot/Deal Next/Deal Loose. Out-of-session dealing already
    produces zero graph writes for free, from the schema itself (Record/End
    are the only checkpoint writers, both gated to in-session).
-5. **Card dragging + loose cards + the modifier mechanic** — 1 of 2 paths
-   done 2026-08-13: Deal Loose + "Modify Card" as the right-click alternate
-   path (picks a target from a menu, writes `MODIFIES`, draws a connecting
-   line). **Remaining: the three-way drag resolution**
-   (empty→vertical / filled-vertical→horizontal / both-filled→
-   highlight+`MODIFIES`) — deliberately held back from the piece above since
-   real mouse-drag input handling can't be verified without hands-on
-   testing on a live tool. Do this one with the user at a computer able to
-   click through it, not unattended.
+5. ~~**Card dragging + loose cards + the modifier mechanic**~~ — done
+   2026-08-16, both paths. Piece 1 (2026-08-13): Deal Loose + "Modify Card"
+   as a right-click path — reworked 2026-08-16 into an edge drag (grab the
+   loose end, hover any card for the amber highlight, click/right-click/
+   Escape to resolve or cancel) rather than a text list that named
+   candidates by name even face-down. Piece 2, the three-way drag
+   resolution (empty→Vertical / filled-Vertical→Horizontal / occupied→
+   `MODIFIES`), landed 2026-08-16 with a live amber/green hover preview and
+   went through several real bugs before it was solid — see "Non-obvious
+   bugs" above, especially the `visible`-vs-`has_data` feedback loop.
+   Per live feedback, Horizontal's own footprint takes priority to fill it
+   once Vertical is occupied (not the reverse), and each slot also has its
+   own "Horizontal on" checkbox in the Layout editor (off = a filled
+   Vertical reads as the whole slot being full). Also added, same day: a
+   draggable deck object with its own hover/hold-to-draw gesture (see "What
+   works" above) — not originally in this roadmap, but built on the same
+   loose-card drag machinery this step produced.
 6. **Traits & Background** — both small, Tag-style managed lists,
    essentially independent of everything above. **Traits half done
    2026-08-13**: a Traits rollup (state-independent tier) checkbox-lists the
@@ -485,6 +629,8 @@ pluggable wherever convenient once their own prerequisites are met.
    Out-of-session switching stays passive, unchanged.
 
 **Also still open, unrelated to this sequence:**
-- Draw actual card art in `CardNode._draw()` instead of the name-text placeholder
+- Deck client access — visibility, "pick" to draw, separate place/modify
+  permission bits for a client-drawn card (Piece B of the 2026-08-16 deck
+  feature; needs client-role testing, which this rebuild hasn't done at all yet)
 - `point`/`pick` client actions
 - Reading history browser reading from the graph's Scenario nodes instead of a flat file
