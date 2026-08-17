@@ -89,6 +89,19 @@ on End Reading but never tore down the now-empty `SlotVisual` placeholders
 themselves, so their outlines lingered on the client's screen indefinitely
 (now `set_slots({})` alongside `apply_state({})`); and deck client access
 ("Piece B", deferred since 2026-08-16) shipped — see "What works" below.
+Same session, second half: the deck's selection/resolution controls got
+fully built out (Draw & Select/Select Loose, click-to-carry, place/free/
+modify), Layout/Loose visibility with an off-cascade landed, a real
+WS-connect race (`send_ws()` called before the socket had actually
+opened) and a real session-retirement race (End Reading never told the
+server the session was over, only an eventual disconnect did) were found
+and fixed — the latter was the root cause of a "client sees a ghost of
+the previous reading" report that looked client-side and wasn't. **This
+closes out the session's Paratarot work** — priorities moved to launching
+avareads.com as a real business (see intro above and Grant's own
+CLAUDE.md), and this repo's next session likely starts from a business
+need (Schedulez usage feedback, payment-field tweaks) rather than picking
+the roadmap back up cold.
 
 ### What works
 - Public-tier login (`client_test` account, role `public`) → auto-redirects
