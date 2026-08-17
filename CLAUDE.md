@@ -28,7 +28,7 @@ consulting, but nothing there should be built on directly.
 
 ---
 
-## Current State (as of 2026-08-16)
+## Current State (as of 2026-08-17)
 
 **The 2026-08-08 baseline** (session start → deal → controller toggles
 visibility/flip → client sees it → checkpoint on End Reading) **was verified
@@ -49,6 +49,36 @@ diagnosed root-cause bug hunt (not a workaround) that took many rounds of
 live screenshots and a temporary on-screen diagnostic overlay to pin down.
 See "Non-obvious bugs" below for the postmortem; it's worth reading before
 touching any of `CardWorld._resolve_loose_drop()`/`_set_drag_hover()`.
+
+**2026-08-17 session: first real client-side testing pass, ever.** Every
+prior session had only hands-on-tested the controller. First finding:
+Client Access "Visible" toggles did nothing on the client's screen — traced
+via live `journalctl -u grant-api -f` log evidence to prove the server
+pipeline (controller → ACL filter → broadcast) was already correct, which
+narrowed it to the client. Root cause: the client's own `CardWorld` never
+had any `SlotVisual` objects at all — `apply_state()` only ever renders
+into `_slot_visuals`, which only `set_slots()` populates, and that call was
+buried inside the *controller's* own layout-loading path
+(`_apply_active_layout()`), never reached from `_setup_client()`. Not a
+filtering bug, not a rendering bug — the client's table simply had zero
+slots on it, so a perfectly correct payload had nowhere to go. Fixed by
+having the controller carry slot geometry (position/scale/name/
+horizontal-on) along in the same "state" WS push every other change
+already triggers (`_state["slots"]`, set in `_apply_active_layout()`);
+`grant-api`'s `_filter_state_for_client` forwards it unfiltered (structural,
+not reading content — only card contents/visibility are ever ACL-gated).
+The client had no other way to learn this: a `public`-role account has no
+`graph_access` grant, so a direct `GET /graphs/tarot-deck` (the first fix
+attempted) would have 403'd for a real persona even though it worked
+conceptually. Confirmed fixed live. Same session, three more real
+client-facing gaps closed once testing was actually possible: a client's
+granted flip was a standing back-and-forth ability, not the intended
+one-shot "let them turn this one over" (now auto-revoked on use, syncing
+the controller's own checkbox); `_on_client_ws_closed()` cleared card data
+on End Reading but never tore down the now-empty `SlotVisual` placeholders
+themselves, so their outlines lingered on the client's screen indefinitely
+(now `set_slots({})` alongside `apply_state({})`); and deck client access
+("Piece B", deferred since 2026-08-16) shipped — see "What works" below.
 
 ### What works
 - Public-tier login (`client_test` account, role `public`) → auto-redirects
@@ -305,20 +335,37 @@ touching any of `CardWorld._resolve_loose_drop()`/`_set_drag_hover()`.
   The client-facing side of this — visibility, letting a client "pick" a
   card, separate place/modify permission bits — is a deliberately deferred
   follow-up piece needing its own client-role testing pass.
+- **Deck client access, "Piece B" (2026-08-17)**: a "Deck" row in Client
+  Access — Visible / Can Deal Next / Can Draw Loose, same one-checkbox-per-
+  row shape the per-slot rows use. `"_deck"`/`"deck"` is a pseudo slot_id/
+  layer pair, deliberately, not a new ACL shape — reuses `actions_for()`/
+  `sync_acl()`-style plumbing and the client action-request path (both
+  grant-api's action validation and CardWorld's own resolution key off
+  card_id+layer generically) with no special-casing anywhere else in the
+  pipeline. Client-side, `DeckVisual` gets a `simple_tap_mode` (no
+  reposition-drag, no hold-to-draw, no right-click menu — a plain tap opens
+  the same bottom action bar a tapped card does, ClientOverlay, showing
+  whichever of Deal Next/Draw Loose is currently granted); hidden until the
+  controller checks "Visible". Deal Next/Draw Loose reuse
+  `_on_deal_next_pressed()`/`_on_deal_loose_pressed()` unchanged — both were
+  already state-independent, no session gating to route around. `point`/
+  full `pick`-as-a-drag-source (client physically dragging a drawn card
+  around, vs. it landing via the same server-authoritative deal) are still
+  open — see below.
+- **"Show All"/"Hide All"** (2026-08-17): two buttons at the top of Client
+  Access, one graph write each — sets every currently-fillable layer's
+  (respecting `horizontal_enabled`) plus the deck's `visible` flag in one
+  shot. Deliberately touches only `visible`, never `actions` — blinking the
+  whole table off and back on shouldn't also strip a client's already-
+  granted flip/deal/draw permissions.
 
 ### What is not yet done (deliberately deferred, not forgotten)
-- **Deck client access** — visibility toggle, a "pick" ACL action so a
-  client can draw from the deck marker themselves, and separate bits
-  gating whether a client-drawn card can be placed in a slot vs. used to
-  modify. This is "Piece B" of the deck feature (Piece A, controller-only,
-  landed 2026-08-16) — needs client-role testing, which this project hasn't
-  done at all yet this whole rebuild (every session so far has only
-  hands-on-tested the controller side).
 - Background (Step 6's other half) — per-Layout fill-color/image, not started
 - Celtic Cross / Ava's Celtic Cross layouts (buildable now via the Layout
   editor, just not pre-seeded)
-- `point` and `pick` ACL actions (protocol supports them; only `flip` is
-  wired up client-side — "pick" is specifically needed for deck client access above)
+- `point` ACL action, and `pick` as an actual client-side drag gesture off
+  the deck (today's "Draw Loose"/"Deal Next" are server-authoritative one-
+  tap deals, not a drag the client controls the landing spot of)
 - Card info/meanings panel, reading history browser
 - Stats-model nodes as their own queryable type (reading metrics currently
   just live as empty properties on the Scenario node)
@@ -499,11 +546,16 @@ browser. Also added 2026-08-11: `/paratarot/`'s nginx location was missing
 the `Cache-Control: no-cache` header `/paradotz/` already has for the exact
 same reason (Godot reuses `index.js`/`.pck`/`.wasm` filenames on every
 build, so browsers silently serve a stale cached copy after a deploy) — this
-had been live and un-fixed since Paratarot shipped. `v0.16.1` as of the
-2026-08-16 session (started that session at `v0.13.6`) — every fix in this
-file's "Non-obvious bugs" section landed as its own version bump, deployed
-and hands-on re-tested individually rather than batched, which is how a
-diagnostic-overlay screenshot could be tied to an exact build.
+had been live and un-fixed since Paratarot shipped. `v0.18.0` as of the
+2026-08-17 session (started that session at `v0.16.2`, ended the 2026-08-16
+session there) — every fix in this file's "Non-obvious bugs" section landed
+as its own version bump, deployed and hands-on re-tested individually
+rather than batched, which is how a diagnostic-overlay screenshot could be
+tied to an exact build. The client view now shows its own version number
+too (top-right corner, added 2026-08-17) — it has no ControllerPanel to put
+one in, but the same "only way to confirm a deploy reached this build"
+reasoning applies, and it's genuinely how the client-never-rendered-cards
+bug that session (see "Current State" above) got confirmed fixed.
 
 ---
 
@@ -629,8 +681,7 @@ pluggable wherever convenient once their own prerequisites are met.
    Out-of-session switching stays passive, unchanged.
 
 **Also still open, unrelated to this sequence:**
-- Deck client access — visibility, "pick" to draw, separate place/modify
-  permission bits for a client-drawn card (Piece B of the 2026-08-16 deck
-  feature; needs client-role testing, which this rebuild hasn't done at all yet)
-- `point`/`pick` client actions
+- Deck client access, Piece B — done 2026-08-17, see "What works" above.
+  `point` ACL action and `pick` as an actual client-controlled drag gesture
+  (vs. today's server-authoritative one-tap Deal Next/Draw Loose) still open.
 - Reading history browser reading from the graph's Scenario nodes instead of a flat file

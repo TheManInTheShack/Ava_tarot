@@ -94,13 +94,20 @@ func _ready() -> void:
 	_world.mouse_filter = Control.MOUSE_FILTER_PASS
 	add_child(_world)
 
-	if is_client:
-		return
-
 	_deck_visual = DeckVisual.new()
-	_deck_visual.drag_started.connect(_on_deck_drag_started)
-	_deck_visual.draw_started.connect(_on_deck_draw_started)
-	_deck_visual.context_requested.connect(func() -> void: deck_context_requested.emit())
+	if is_client:
+		# No repositioning, no hold-to-draw, no right-click menu — a plain
+		# tap opens the same action bar a tapped card does (see
+		# Main._on_client_card_tapped), gated by whatever the controller has
+		# currently granted via the deck's ACL row. Hidden until that ACL
+		# says otherwise (see apply_state()).
+		_deck_visual.simple_tap_mode = true
+		_deck_visual.tapped.connect(func() -> void: card_tapped.emit("_deck", "deck"))
+		_deck_visual.visible = false
+	else:
+		_deck_visual.drag_started.connect(_on_deck_drag_started)
+		_deck_visual.draw_started.connect(_on_deck_draw_started)
+		_deck_visual.context_requested.connect(func() -> void: deck_context_requested.emit())
 	_world.add_child(_deck_visual)
 
 
@@ -643,6 +650,11 @@ func begin_loose_drag(card_id: String) -> void:
 ## to both filter and mark which layers are currently tappable — layers are
 ## controlled independently, per Meta/Reading-Model.md.
 func apply_state(cards: Dictionary, acl: Dictionary = {}) -> void:
+	if is_client:
+		# "_deck"/"deck" is a pseudo slot_id/layer pair, not a real one —
+		# reuses the exact same ACL shape as a card layer so actions_for()
+		# needs no special-casing when the deck marker itself is tapped.
+		_deck_visual.visible = acl.get("_deck", {}).get("deck", {}).get("visible", false)
 	for slot_id in _slot_visuals.keys():
 		var visual: SlotVisual = _slot_visuals[slot_id]
 		var slot_info: Dictionary = cards.get(slot_id, {})

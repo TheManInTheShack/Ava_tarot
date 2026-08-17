@@ -16,6 +16,9 @@ signal deal_next_pressed()
 signal deal_to_slot_pressed(slot_id: String, layer: String)
 signal deal_loose_pressed()
 signal acl_changed(slot_id: String, layer: String, is_visible: bool, actions: Array)
+signal deck_acl_changed(is_visible: bool, actions: Array)
+signal show_all_pressed()
+signal hide_all_pressed()
 signal layout_selected(layout_id: String)
 signal layout_created(name: String)
 signal layout_deleted(layout_id: String)
@@ -52,6 +55,9 @@ var _version_label: Label
 var _visible_cbs: Dictionary = {}   # "slot_id:layer" -> CheckBox
 var _flip_cbs: Dictionary = {}      # "slot_id:layer" -> CheckBox
 var _cards_form: VBoxContainer
+var _deck_visible_cb: CheckBox
+var _deck_deal_next_cb: CheckBox
+var _deck_draw_loose_cb: CheckBox
 var _layout_menu: MenuButton
 var _layout_modify_btn: Button
 var _layout_new_row: HBoxContainer
@@ -1117,8 +1123,68 @@ const LAYER_LABELS := {"vertical": "Vertical", "horizontal": "Horizontal"}
 
 
 func _build_cards_section() -> void:
+	var form := VBoxContainer.new()
+
+	var bulk_row := HBoxContainer.new()
+	var show_all_btn := Button.new()
+	show_all_btn.text = "Show All"
+	show_all_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	show_all_btn.pressed.connect(func() -> void: show_all_pressed.emit())
+	bulk_row.add_child(show_all_btn)
+	var hide_all_btn := Button.new()
+	hide_all_btn.text = "Hide All"
+	hide_all_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hide_all_btn.pressed.connect(func() -> void: hide_all_pressed.emit())
+	bulk_row.add_child(hide_all_btn)
+	form.add_child(bulk_row)
+
+	form.add_child(HSeparator.new())
+
+	# Deck row — state-independent (the deck marker isn't tied to the active
+	# layout's slots the way the rows below are), so it lives here as a
+	# fixed row rather than inside _cards_form, which _refresh_cards_section
+	# tears down and rebuilds on every layout change. One checkbox per row,
+	# not two/three side by side — the same 320px-panel-width squeeze the
+	# per-slot rows below already learned to avoid (see their own comment).
+	var deck_label := Label.new()
+	deck_label.text = "Deck"
+	form.add_child(deck_label)
+	_deck_visible_cb = CheckBox.new()
+	_deck_visible_cb.text = "Visible"
+	form.add_child(_deck_visible_cb)
+	_deck_deal_next_cb = CheckBox.new()
+	_deck_deal_next_cb.text = "Can Deal Next"
+	form.add_child(_deck_deal_next_cb)
+	_deck_draw_loose_cb = CheckBox.new()
+	_deck_draw_loose_cb.text = "Can Draw Loose"
+	form.add_child(_deck_draw_loose_cb)
+
+	var emit_deck_change := func() -> void:
+		var actions: Array = []
+		if _deck_deal_next_cb.button_pressed:
+			actions.append("deal_next")
+		if _deck_draw_loose_cb.button_pressed:
+			actions.append("draw_loose")
+		deck_acl_changed.emit(_deck_visible_cb.button_pressed, actions)
+	_deck_visible_cb.toggled.connect(func(_v: bool) -> void: emit_deck_change.call())
+	_deck_deal_next_cb.toggled.connect(func(_v: bool) -> void: emit_deck_change.call())
+	_deck_draw_loose_cb.toggled.connect(func(_v: bool) -> void: emit_deck_change.call())
+
+	form.add_child(HSeparator.new())
+
 	_cards_form = VBoxContainer.new()
-	_make_rollup("Client Access", _rollup_color(2), _cards_form)
+	form.add_child(_cards_form)
+
+	_make_rollup("Client Access", _rollup_color(2), form)
+
+
+## Keeps the deck checkboxes honest when its ACL changes from elsewhere
+## (Show All/Hide All) instead of from this panel's own deck row — same
+## reasoning as sync_acl() below.
+func sync_deck_acl(is_visible: bool, actions: Array) -> void:
+	_deck_visible_cb.set_pressed_no_signal(is_visible)
+	_deck_deal_next_cb.set_pressed_no_signal(actions.has("deal_next"))
+	_deck_draw_loose_cb.set_pressed_no_signal(actions.has("draw_loose"))
 
 
 ## Rows are data-driven off the active Layout's real Slot list (set_slots()),

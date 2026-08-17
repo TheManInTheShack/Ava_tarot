@@ -21,6 +21,14 @@ extends Control
 signal drag_started()  # press + moved before priming -> CardWorld repositions this marker
 signal draw_started()  # primed, then moved or released -> CardWorld peels a loose card off
 signal context_requested()  # right-click -> Deal Next/Deal Loose/Draw/Shuffle/Reset menu
+signal tapped()  # simple_tap_mode only — a plain click, no hold/drag/context-menu gesture
+
+## Client mode has no business repositioning the physical deck or getting the
+## controller's full hold-to-draw/right-click menu — a plain tap is the only
+## gesture, opening the same bottom action bar (ClientOverlay) a tapped card
+## already does, showing whichever of Deal Next/Draw Loose the controller has
+## currently granted. Set by CardWorld right after .new(), before add_child().
+var simple_tap_mode: bool = false
 
 const DECK_SIZE := Vector2(80.0, 140.0)  # half CardNode.CARD_SIZE, per the ask
 const DEFAULT_POSITION := Vector2(1480.0, 40.0)  # upper-right, ~40px margin (CardWorld is ~1600x1080 after PANEL_W)
@@ -58,6 +66,8 @@ func _ready() -> void:
 
 
 func _on_mouse_entered() -> void:
+	if simple_tap_mode:
+		return
 	if not _primed:
 		_hold_timer.start()
 
@@ -69,6 +79,10 @@ func _on_mouse_exited() -> void:
 
 
 func _gui_input(event: InputEvent) -> void:
+	if simple_tap_mode:
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+			tapped.emit()
+		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
 			_pressed = true

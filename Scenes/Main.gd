@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.17.3"
+const VERSION := "0.18.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -144,6 +144,9 @@ func _setup_controller() -> void:
 	_panel.deal_to_slot_pressed.connect(_on_deal_to_slot_pressed)
 	_panel.deal_loose_pressed.connect(_on_deal_loose_pressed)
 	_panel.acl_changed.connect(_on_acl_changed)
+	_panel.deck_acl_changed.connect(_on_deck_acl_changed)
+	_panel.show_all_pressed.connect(_on_show_all_pressed)
+	_panel.hide_all_pressed.connect(_on_hide_all_pressed)
 	_panel.layout_selected.connect(_on_layout_selected)
 	_panel.layout_created.connect(_on_layout_created)
 	_panel.layout_deleted.connect(_on_layout_deleted)
@@ -1307,7 +1310,60 @@ func _on_acl_changed(slot_id: String, layer: String, is_visible: bool, actions: 
 	ApiClient.send_ws({"type": "acl", "payload": _acl})
 
 
+## The deck marker isn't a real Slot, but "_deck"/"deck" is used as a
+## pseudo slot_id/layer pair so it can reuse the exact same ACL shape,
+## actions_for()/sync_acl()-style plumbing, and client action-request path
+## (CardWorld.gd/grant-api's action validation both key off card_id+layer
+## generically) — no special-casing needed anywhere else in the pipeline.
+func _on_deck_acl_changed(is_visible: bool, actions: Array) -> void:
+	var deck_acl: Dictionary = _acl.get("_deck", {})
+	deck_acl["deck"] = {"visible": is_visible, "actions": actions}
+	_acl["_deck"] = deck_acl
+	ApiClient.send_ws({"type": "acl", "payload": _acl})
+
+
+## "Show All"/"Hide All" — a quick way to show or hide everything a client
+## can currently see in one action, rather than toggling each row by hand.
+## Only ever touches the "visible" flag, never "actions": a client's granted
+## flip/deal/draw permissions shouldn't change just because the controller
+## blinked the whole table off and back on.
+func _on_show_all_pressed() -> void:
+	_bulk_set_visibility(true)
+
+
+func _on_hide_all_pressed() -> void:
+	_bulk_set_visibility(false)
+
+
+func _bulk_set_visibility(is_visible: bool) -> void:
+	var active_slots := _slots_for_layout(_active_layout_id)
+	for slot_id in active_slots.keys():
+		for layer in ["vertical", "horizontal"]:
+			if layer == "horizontal" and not active_slots[slot_id].get("horizontal_enabled", true):
+				continue
+			var slot_acl: Dictionary = _acl.get(slot_id, {})
+			var layer_acl: Dictionary = slot_acl.get(layer, {"visible": false, "actions": []})
+			layer_acl["visible"] = is_visible
+			slot_acl[layer] = layer_acl
+			_acl[slot_id] = slot_acl
+			_panel.sync_acl(slot_id, layer, is_visible, layer_acl.get("actions", []))
+	var deck_acl: Dictionary = _acl.get("_deck", {})
+	var deck_layer_acl: Dictionary = deck_acl.get("deck", {"visible": false, "actions": []})
+	deck_layer_acl["visible"] = is_visible
+	deck_acl["deck"] = deck_layer_acl
+	_acl["_deck"] = deck_acl
+	_panel.sync_deck_acl(is_visible, deck_layer_acl.get("actions", []))
+	ApiClient.send_ws({"type": "acl", "payload": _acl})
+
+
 func _on_client_action_received(card_id: String, layer: String, action: String, _user_id: int) -> void:
+	if card_id == "_deck":
+		match action:
+			"deal_next":
+				_on_deal_next_pressed()
+			"draw_loose":
+				_on_deal_loose_pressed()
+		return
 	if action == "flip":
 		_flip_layer(card_id, layer)
 		_revoke_client_flip(card_id, layer)

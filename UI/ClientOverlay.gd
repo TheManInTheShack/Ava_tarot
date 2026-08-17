@@ -66,6 +66,10 @@ func _label_for(action: String) -> String:
 			return "Point"
 		"pick":
 			return "Pick"
+		"deal_next":
+			return "Deal Next"
+		"draw_loose":
+			return "Draw Card"
 		_:
 			return action.capitalize()
 
