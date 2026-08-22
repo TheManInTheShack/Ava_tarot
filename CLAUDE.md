@@ -621,6 +621,24 @@ the roadmap back up cold.
   alongside `payment_*` at Session-node creation for the same consistency
   reason. Grant-side-only change, no Paratarot deploy needed for the
   server half but both are shipped together here anyway.
+- **Querent rollup — client notes (2026-08-22)**: a new rollup, separate
+  from Traits by deliberate design ("overlap," not merge — confirmed with
+  the owner directly: Traits stays a shared, reusable vocabulary; this is
+  free-text notes specific to one client). Same focus rule as Traits
+  (in-session locked to `_pending_client`; out of session, its own
+  independent picker — `_querent_client_menu`/
+  `get_querent_selected_client()`, deliberately not shared with Traits' or
+  Session's own pickers, same reasoning `_build_traits_section()`'s doc
+  comment already gives for keeping those two apart). Unlike Session
+  Theme/Payment, **this is client-persistent, not session-scoped** — it
+  reads/writes the focused client's own `notes` property on their actual
+  `Client` graph node (not the Session node), so switching focus loads
+  whatever's already saved there rather than starting blank
+  (`_focused_client_notes()`, straight off `_graph`). New `"querent_note"`
+  WS message (`grant-api`) creates the Client node first if it doesn't
+  exist yet (same id scheme `_ensure_client_node` already uses, so a
+  client picked out-of-session with no prior reading doesn't end up with
+  a duplicate node once a real session eventually happens with them).
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started

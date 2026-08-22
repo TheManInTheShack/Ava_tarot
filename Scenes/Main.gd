@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.25.1"
+const VERSION := "0.26.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -184,6 +184,8 @@ func _setup_controller() -> void:
 	_panel.trait_modified.connect(_on_trait_modified)
 	_panel.trait_toggled.connect(_on_trait_toggled)
 	_panel.client_focus_changed.connect(_refresh_traits_panel)
+	_panel.querent_focus_changed.connect(_refresh_querent_panel)
+	_panel.querent_note_saved.connect(_on_querent_note_saved)
 	_panel.exit_pressed.connect(_on_exit_pressed)
 	_panel.ctx_toggled.connect(_on_ctx_toggled)
 	_world.card_tapped.connect(_on_controller_card_tapped)
@@ -208,10 +210,12 @@ func _setup_controller() -> void:
 	var clients: Array = await ApiClient.get_clients()
 	_panel.set_clients(clients)
 	_panel.set_traits_clients(clients)
+	_panel.set_querent_clients(clients)
 	# Traits' "current focus" depends on its own picker, so this can only
 	# happen once both the graph (trait vocabulary) and that picker (initial
 	# selection) are loaded — see _refresh_traits_panel's own doc comment.
 	_refresh_traits_panel()
+	_refresh_querent_panel()
 
 
 # ── Layout / Slot (graph-backed) ────────────────────────────────────────────
@@ -724,6 +728,7 @@ func _on_start_pressed() -> void:
 	_panel.set_in_session(true)
 	_panel.set_status("Reading in progress — %s" % (client_display if client_display else client_username))
 	_refresh_traits_panel()  # focus is now this session's client, not the picker
+	_refresh_querent_panel()
 	# send_ws() silently no-ops until the WebSocketPeer actually reaches
 	# STATE_OPEN — connect_to_url() only starts the handshake, it doesn't
 	# wait for it. Sending immediately here was a real bug, not just
@@ -778,6 +783,7 @@ func _on_end_pressed() -> void:
 	_world.apply_state(_state["cards"])
 	_world.set_loose(_state["loose"])
 	_refresh_traits_panel()  # focus reverts to whatever the picker has selected
+	_refresh_querent_panel()
 
 
 ## Mid-session save — "record it and start over in the same session":
@@ -1002,6 +1008,66 @@ func _refresh_traits_panel() -> void:
 	var client_id := _focused_client_id()
 	var client_trait_ids: Dictionary = _client_trait_ids_for(client_id) if client_id != "" else {}
 	_panel.set_traits(_traits, client_trait_ids, _focused_client_label())
+
+
+# ── Querent (client notes) ──────────────────────────────────────────────────
+# Same focus rule as Traits (see _focused_client_id()'s own doc), own
+# independent out-of-session picker — "whose notes am I looking at" is a
+# third question, distinct from Traits' and Session's own pickers.
+
+func _focused_querent_client_id() -> String:
+	if not _pending_client.is_empty():
+		return "client-%d" % int(_pending_client.get("user_id", 0))
+	var selected: Dictionary = _panel.get_querent_selected_client()
+	if selected.is_empty():
+		return ""
+	return "client-%d" % int(selected.get("id", 0))
+
+
+func _focused_querent_client_label() -> String:
+	var info: Dictionary = _pending_client if not _pending_client.is_empty() else _panel.get_querent_selected_client()
+	if info.is_empty():
+		return ""
+	var dn: String = info.get("display_name", "")
+	return dn if dn != "" else info.get("username", "")
+
+
+## Read straight off the Client node's own properties — this is
+## client-persistent, unlike Session Theme/Payment, so it always reflects
+## whatever's actually saved there rather than resetting per-session.
+func _focused_client_notes(client_id: String) -> String:
+	for n in _graph.get("nodes", []):
+		if str(n.get("id", "")) == client_id:
+			return str(n.get("properties", {}).get("notes", ""))
+	return ""
+
+
+func _refresh_querent_panel() -> void:
+	var client_id := _focused_querent_client_id()
+	var notes: String = _focused_client_notes(client_id) if client_id != "" else ""
+	_panel.set_querent_notes(_focused_querent_client_label(), notes)
+
+
+## Writes straight onto the focused client's own Client node — a new
+## "querent_note" WS message (grant-api), which creates the node first
+## (same id scheme _ensure_client_node already uses) if this client has
+## never had one (e.g. picked out-of-session with no prior reading yet).
+func _on_querent_note_saved(note: String) -> void:
+	var client_id: String = _focused_querent_client_id()
+	if client_id == "":
+		_panel.set_status("Pick a client first")
+		return
+	var info: Dictionary = _pending_client if not _pending_client.is_empty() else _panel.get_querent_selected_client()
+	ApiClient.send_ws({
+		"type": "querent_note",
+		"payload": {
+			"client_id": client_id,
+			"username": info.get("username", ""),
+			"display_name": info.get("display_name", ""),
+			"note": note,
+		},
+	})
+	_panel.set_status("Notes saved")
 
 
 func _on_trait_created(name: String) -> void:

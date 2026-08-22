@@ -38,6 +38,8 @@ signal trait_deleted(trait_id: String)
 signal trait_modified(trait_id: String, name: String, note: String)
 signal trait_toggled(trait_id: String, has_trait: bool)  # add (true) / remove (false) for the focused client
 signal client_focus_changed()
+signal querent_focus_changed()
+signal querent_note_saved(note: String)
 signal exit_pressed()
 signal ctx_toggled()  # "Ctx" button — see Main.gd's _on_ctx_toggled(); style kept in sync via set_ctx_on()
 
@@ -51,6 +53,8 @@ const PALETTE := [
 	Color(0.95, 0.75, 0.25),  # Yellow — Client Access
 	Color(0.95, 0.55, 0.20),  # Orange — Layout (spatial/compositional, matches Paradotz's convention)
 	Color(0.75, 0.45, 0.95),  # Violet — Traits
+	Color(0.90, 0.35, 0.55),  # Magenta — Querent (deliberately distinct from Traits' violet even
+	                          # though the two "overlap" conceptually — they stay separate rollups)
 ]
 
 ## (0,0) landed a new slot right behind the panel, in the one corner of the
@@ -121,6 +125,12 @@ var _trait_modify_note: TextEdit
 var _trait_add_menu: MenuButton
 var _trait_add_options: Array = []     # trait_ids not yet on the focused client
 var _trait_add_selected_index: int = -1
+var _querent_picker_row: HBoxContainer  # client picker, visible only out-of-session — own, independent selection, same reasoning as Traits' own picker
+var _querent_client_menu: MenuButton
+var _querent_clients: Array = []
+var _querent_selected_client_index: int = -1
+var _querent_focus_label: Label
+var _querent_notes_edit: TextEdit
 
 
 func _ready() -> void:
@@ -155,6 +165,7 @@ func _ready() -> void:
 	_build_cards_section()
 	_build_layout_section()
 	_build_traits_section()
+	_build_querent_section()
 
 
 func set_version(v: String) -> void:
@@ -797,6 +808,9 @@ func set_in_session(in_session: bool) -> void:
 	# during _ready(), before _build_traits_section() runs and creates it.
 	if _traits_picker_row != null:
 		_traits_picker_row.visible = not in_session
+	# Same rule, same reasoning, Querent's own independent picker.
+	if _querent_picker_row != null:
+		_querent_picker_row.visible = not in_session
 
 
 ## clients: [{"id": int, "username": String, "display_name": String|null}, ...]
@@ -1220,6 +1234,86 @@ func set_traits(traits: Dictionary, client_trait_ids: Dictionary, focus_label: S
 	else:
 		_trait_add_selected_index = 0
 		_trait_add_menu.text = traits[_trait_add_options[0]].get("name", "")
+
+
+# ── Querent (client notes) ───────────────────────────────────────────────────
+# "Overlaps" with Traits conceptually (both are about the client currently in
+# focus) but is deliberately its own rollup/picker, not a merge — Traits is a
+# shared, reusable vocabulary tagged onto whichever client; this is free-text
+# notes specific to one client, written back onto their own Client graph
+# node. Same focus rule as Traits: in-session locked to that client, out of
+# session picked from its own independent picker (not shared with Traits' or
+# Session's — same reasoning as _build_traits_section()'s own doc comment:
+# "who will the next reading be with," "whose traits am I looking at," and
+# now "whose notes am I looking at" are three different questions).
+
+func _build_querent_section() -> void:
+	var form := VBoxContainer.new()
+
+	_querent_picker_row = HBoxContainer.new()
+	_querent_client_menu = MenuButton.new()
+	_querent_client_menu.text = "No clients"
+	_querent_client_menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_querent_client_menu.get_popup().id_pressed.connect(_on_querent_client_menu_id_pressed)
+	_querent_picker_row.add_child(_querent_client_menu)
+	form.add_child(_querent_picker_row)
+
+	_querent_focus_label = Label.new()
+	_querent_focus_label.text = "No client selected"
+	form.add_child(_querent_focus_label)
+
+	# Explicit Save, not live-per-keystroke — same reasoning as Session
+	# Theme/Payment (a half-typed note shouldn't get written either).
+	_querent_notes_edit = TextEdit.new()
+	_querent_notes_edit.custom_minimum_size = Vector2(0.0, 100.0)
+	_querent_notes_edit.placeholder_text = "Notes about this client, written back to their own node"
+	_querent_notes_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	form.add_child(_querent_notes_edit)
+	var save_notes_btn := Button.new()
+	save_notes_btn.text = "Save Notes"
+	save_notes_btn.pressed.connect(func() -> void: querent_note_saved.emit(_querent_notes_edit.text))
+	form.add_child(save_notes_btn)
+
+	_make_rollup("Querent", _rollup_color(5), form)
+
+
+func _on_querent_client_menu_id_pressed(id: int) -> void:
+	_querent_selected_client_index = id
+	_querent_client_menu.text = _label_for_client(_querent_clients[id])
+	querent_focus_changed.emit()
+
+
+## clients: same shape as set_clients()/set_traits_clients() — populated from
+## the same fetched list, a third, independent selection.
+func set_querent_clients(clients: Array) -> void:
+	_querent_clients = clients
+	var popup := _querent_client_menu.get_popup()
+	popup.clear()
+	for i in range(clients.size()):
+		popup.add_item(_label_for_client(clients[i]), i)
+	if clients.is_empty():
+		_querent_client_menu.text = "No clients"
+		_querent_selected_client_index = -1
+	else:
+		_querent_selected_client_index = 0
+		_querent_client_menu.text = _label_for_client(clients[0])
+
+
+## Returns {} if no client is selected (e.g. the picker is still empty).
+func get_querent_selected_client() -> Dictionary:
+	if _querent_selected_client_index < 0 or _querent_selected_client_index >= _querent_clients.size():
+		return {}
+	return _querent_clients[_querent_selected_client_index]
+
+
+## notes: the focused client's current notes, read straight from their own
+## Client node (Main._focused_client_notes()) — unlike Session Theme/Payment,
+## this is NOT reset per-session; it's client-persistent, so switching focus
+## (or starting a session with a given client) loads whatever's already
+## there rather than starting blank.
+func set_querent_notes(focus_label: String, notes: String) -> void:
+	_querent_focus_label.text = ("Notes for %s" % focus_label) if focus_label != "" else "No client selected"
+	_querent_notes_edit.text = notes
 
 
 const LAYER_LABELS := {"vertical": "Vertical", "horizontal": "Horizontal"}
