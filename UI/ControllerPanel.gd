@@ -40,8 +40,6 @@ signal trait_toggled(trait_id: String, has_trait: bool)  # add (true) / remove (
 signal client_focus_changed()
 signal querent_focus_changed()
 signal querent_worksheet_toggled()
-signal exit_pressed()
-signal ctx_toggled()  # "Ctx" button — see Main.gd's _on_ctx_toggled(); style kept in sync via set_ctx_on()
 
 ## Low-tech and manual by design (Venmo personal link + her own confirmation
 ## at session time, not a processor integration) — see Session section.
@@ -65,7 +63,6 @@ const DEFAULT_NEW_SLOT_POS := Vector2(300.0, 300.0)
 
 var _status_label: Label
 var _version_label: Label
-var _ctx_btn: Button
 var _visible_cbs: Dictionary = {}   # "slot_id:layer" -> CheckBox
 var _flip_cbs: Dictionary = {}      # "slot_id:layer" -> CheckBox
 var _cards_form: VBoxContainer
@@ -144,18 +141,6 @@ func _ready() -> void:
 	_version_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top_row.add_child(_version_label)
 
-	_ctx_btn = Button.new()
-	_ctx_btn.text = "Ctx"
-	_ctx_btn.flat = true
-	_ctx_btn.focus_mode = Control.FOCUS_NONE
-	_ctx_btn.add_theme_color_override("font_color", Color(0.88, 0.88, 0.88))
-	_ctx_btn.pressed.connect(func() -> void: ctx_toggled.emit())
-	top_row.add_child(_ctx_btn)
-
-	var exit_btn := Button.new()
-	exit_btn.text = "Exit"
-	exit_btn.pressed.connect(func() -> void: exit_pressed.emit())
-	top_row.add_child(exit_btn)
 	add_child(top_row)
 
 	_build_session_section()
@@ -168,11 +153,6 @@ func _ready() -> void:
 
 func set_version(v: String) -> void:
 	_version_label.text = "Paratarot v" + v
-
-
-func set_ctx_on(on: bool) -> void:
-	_ctx_btn.add_theme_color_override("font_color",
-		Color(0.88, 0.88, 0.88) if on else Color(0.35, 0.35, 0.42))
 
 
 func _rollup_color(idx: int) -> Color:

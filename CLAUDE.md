@@ -704,6 +704,48 @@ the roadmap back up cold.
   dropped the Querent rollup's "Notes for X" focus label — redundant now
   that the rollup is just the Worksheet toggle button, the client's name
   already shows in the Worksheet's own header.
+- **The table is finally pan/zoomable, extracted as a real shared
+  component (2026-08-22)**: a concept node spawned off-screen with no way
+  to reach it, which `CardWorld`'s own header comment had been anticipating
+  since it was first written ("a plain Control `_world` child stands in
+  for a camera... Pan/zoom input isn't wired up yet... but the structure
+  is here so it's a trivial follow-on rather than a rework"). New
+  `Nodes/PanZoomCanvas.gd` — mechanics ported from Paradotz's own
+  `Editor.gd` (`_zoom_at()`/`_apply_world_transform()`/`canvas_to_world()`,
+  same math, fixed `0.1`–`5.0` zoom range rather than Paradotz's dynamic
+  content-based floor) plus a genuinely new **Fit** button (unions the
+  bounding rects of `_world`'s direct children, solves zoom+pan to frame
+  them — fully generic, no card/slot-specific knowledge at all; Paradotz
+  has the same underlying computation, `_fit_all_nodes_to_canvas()`, but
+  — worth knowing — never actually exposes it as a button or shortcut
+  anywhere, so this is new UI, not a straight port). Named `PanZoomCanvas`
+  rather than "Board," directly asked about: this same file is meant to
+  become Paradotz's own canvas eventually too (already tracked in
+  `Grant/CLAUDE.md`'s retrofit list, now updated), and "Board" reads oddly
+  for an abstract graph canvas even though it suits a card table nicely —
+  "Canvas" is domain-neutral and is what this category of thing already
+  goes by elsewhere (Figma/Miro/tldraw-style infinite-canvas tools).
+  `CardWorld` now `extends PanZoomCanvas` instead of `extends Control` —
+  since the base class keeps the same `_world` variable name/meaning,
+  **no changes were needed anywhere in `CardWorld`'s own extensive
+  existing `_world`-relative logic** (loose-card drag, slot markers, deck
+  marker, concept nodes, modify-links) — all of it already went through
+  transform-aware calls (`_world.get_local_mouse_position()`,
+  `get_global_transform()`) that correctly account for whatever
+  `_world.position`/`.scale` actually are, regardless of how many Control
+  layers sit in between. `CardWorld._ready()` now just calls
+  `super._ready()` first; `CardWorld._input()`'s existing drag-dispatch
+  chain falls through to `super._input(event)` (pan) only when none of
+  its own five drags are active, so nothing here ever fights panning.
+  Also moved per the same ask: **Exit**/**Ctx** now live in the canvas's
+  own top control strip (`PanZoomCanvas.top_bar_hbox`, alongside the new
+  zoom slider/Fit button) instead of the side `ControllerPanel` — built
+  directly by `Main.gd` now (`_build_top_bar_buttons()`), removed from
+  `ControllerPanel.gd` entirely; they were never really a "data panel"
+  concern. The client's own `CardWorld` gets pan/zoom/Fit too (harmless,
+  arguably useful — it's pure local viewing, no shared state) but not
+  Exit/Ctx, since `_build_top_bar_buttons()` is only ever called from the
+  controller setup path.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started

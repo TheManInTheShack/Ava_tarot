@@ -1,12 +1,10 @@
 class_name CardWorld
-extends Control
+extends PanZoomCanvas
 
-## The pannable/zoomable card table. Technique ported from Paradotz's
-## Editor.gd: a plain Control `_world` child stands in for a camera — its
-## `position`/`scale` do the pan/zoom job (`_apply_world_transform()`'s
-## pattern), no Camera2D needed. Pan/zoom input isn't wired up yet (not
-## needed for one fixed 3-slot layout that fits on screen) but the structure
-## is here so it's a trivial follow-on rather than a rework.
+## The card table — a `PanZoomCanvas` (pan/zoom/fit + the top control strip
+## are all inherited for free; see that file for the mechanics and the
+## naming rationale). `_world` (inherited) is where every table object
+## actually lives — slots, loose cards, concept nodes, the deck marker.
 ##
 ## Renders whatever `apply_state()` is given. In controller mode that's the
 ## full authoritative state (acl omitted); in client mode it's already been
@@ -39,7 +37,6 @@ const DRAG_THRESHOLD := 6.0
 
 var _slot_geometry: Dictionary = {}  # slot_id -> {"name", "x", "y", "horizontal_enabled"} — set via set_slots()
 var _slot_visuals: Dictionary = {}   # slot_id -> SlotVisual — see Nodes/SlotVisual.gd
-var _world: Control
 var _loose_nodes: Dictionary = {}    # deck_card_id -> CardNode, set via set_loose()
 var _modify_links: Array = []        # [[Vector2 from, Vector2 to], ...], world-local, for _draw()
 
@@ -108,11 +105,7 @@ var _deck_drag_grab_offset: Vector2 = Vector2.ZERO
 
 
 func _ready() -> void:
-	_world = Control.new()
-	_world.name = "World"
-	_world.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_world.mouse_filter = Control.MOUSE_FILTER_PASS
-	add_child(_world)
+	super._ready()  # builds _world, the top control strip, pan/zoom/fit — see PanZoomCanvas
 
 	_deck_visual = DeckVisual.new()
 	if is_client:
@@ -262,10 +255,12 @@ func _on_slot_marker_gui_input(slot_id: String, marker: Control, ev: InputEvent)
 		set_process_input(true)
 
 
-## The four drags (slot markers, loose cards, a pending modify edge, the deck
-## marker) are mutually exclusive — only one can be active at a time — so a
-## single _input() dispatches to whichever one is active rather than needing
-## its own per-mode signal.
+## The five drags (slot markers, loose cards, a pending modify edge, the
+## deck marker, concept nodes) are mutually exclusive — only one can be
+## active at a time — so a single _input() dispatches to whichever one is
+## active rather than needing its own per-mode signal. Falls through to
+## the base class (PanZoomCanvas's own pan/zoom) only when none of them
+## are — this repo's own drags always take priority over panning.
 func _input(event: InputEvent) -> void:
 	if _drag_slot_id != "":
 		_input_slot_drag(event)
@@ -277,6 +272,8 @@ func _input(event: InputEvent) -> void:
 		_input_deck_drag(event)
 	elif _drag_concept_key != "":
 		_input_concept_drag(event)
+	else:
+		super._input(event)
 
 
 func _input_slot_drag(event: InputEvent) -> void:

@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.28.1"
+const VERSION := "0.29.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -57,7 +57,8 @@ var _deck_order: Array = []            # undealt cards, standing order, top = in
 var _traits: Dictionary = {}           # trait_id -> name, parsed from _graph — see Traits section
 var _card_props: Dictionary = {}       # card_id -> Card node properties, parsed from _graph — see Card info section
 var _hover_context_window: ContextWindow = null  # controller mode only: the window hover updates — just a regular ContextWindow, defaulted near the bottom, not docked/anchored
-var _ctx_on: bool = true  # "Ctx" button in ControllerPanel — see _on_ctx_toggled()
+var _ctx_on: bool = true  # "Ctx" button, now in the canvas's own top control strip — see _on_ctx_toggled()
+var _ctx_btn: Button = null
 var _info_windows: Array = []          # controller mode only: open floating ContextWindow instances (Show Detail)
 var _querent_worksheet: Worksheet = null  # controller mode only: open Querent worksheet, if any — see _on_querent_worksheet_toggled()
 var _worksheet_field_targets: Dictionary = {}  # key -> resolved node id, from the most recent _resolve_worksheet_fields() call
@@ -153,6 +154,7 @@ func _setup_controller() -> void:
 	_world.offset_left = PANEL_W
 	add_child(_world)
 	_world.set_card_lookup(_deck)  # Planet/Element concept nodes — see CardWorld._refresh_concept_nodes()
+	_build_top_bar_buttons()  # Exit/Ctx — live in the canvas's own top control strip now, not the side panel
 
 	_panel.start_pressed.connect(_on_start_pressed)
 	_panel.record_pressed.connect(_on_record_pressed)
@@ -188,8 +190,6 @@ func _setup_controller() -> void:
 	_panel.client_focus_changed.connect(_refresh_traits_panel)
 	_panel.querent_focus_changed.connect(_refresh_querent_panel)
 	_panel.querent_worksheet_toggled.connect(_on_querent_worksheet_toggled)
-	_panel.exit_pressed.connect(_on_exit_pressed)
-	_panel.ctx_toggled.connect(_on_ctx_toggled)
 	_world.card_tapped.connect(_on_controller_card_tapped)
 	_world.card_context_requested.connect(_on_card_context_requested)
 	_world.slot_drag_ended.connect(_on_slot_updated)
@@ -933,7 +933,7 @@ func _build_hover_context_window() -> void:
 func _on_hover_context_window_closed(_w: FloatingWindow) -> void:
 	_hover_context_window = null
 	_ctx_on = false
-	_panel.set_ctx_on(false)
+	_set_ctx_button_style(false)
 
 
 ## "Ctx" button. Two cases, same as Paradotz's own: normally just toggles
@@ -945,11 +945,37 @@ func _on_ctx_toggled() -> void:
 	if not is_instance_valid(_hover_context_window):
 		_build_hover_context_window()
 		_ctx_on = true
-		_panel.set_ctx_on(true)
+		_set_ctx_button_style(true)
 		return
 	_ctx_on = not _ctx_on
 	_hover_context_window.visible = _ctx_on
-	_panel.set_ctx_on(_ctx_on)
+	_set_ctx_button_style(_ctx_on)
+
+
+func _set_ctx_button_style(on: bool) -> void:
+	if is_instance_valid(_ctx_btn):
+		_ctx_btn.add_theme_color_override("font_color",
+			Color(0.88, 0.88, 0.88) if on else Color(0.35, 0.35, 0.42))
+
+
+## Exit/Ctx live in the canvas's own top control strip now (see
+## PanZoomCanvas.top_bar_hbox), not the side ControllerPanel — they were
+## never really a "data panel" concern. Built here directly rather than
+## through ControllerPanel, same reasoning the zoom controls/Fit button
+## are PanZoomCanvas's own and not ControllerPanel's either.
+func _build_top_bar_buttons() -> void:
+	_ctx_btn = Button.new()
+	_ctx_btn.text = "Ctx"
+	_ctx_btn.flat = true
+	_ctx_btn.focus_mode = Control.FOCUS_NONE
+	_ctx_btn.add_theme_color_override("font_color", Color(0.88, 0.88, 0.88))
+	_ctx_btn.pressed.connect(_on_ctx_toggled)
+	_world.top_bar_hbox.add_child(_ctx_btn)
+
+	var exit_btn := Button.new()
+	exit_btn.text = "Exit"
+	exit_btn.pressed.connect(_on_exit_pressed)
+	_world.top_bar_hbox.add_child(exit_btn)
 
 
 ## Registers Trait.note as "text_long" (Paradotz's long-text property type)
