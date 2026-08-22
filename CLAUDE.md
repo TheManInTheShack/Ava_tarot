@@ -491,22 +491,38 @@ the roadmap back up cold.
   own context panel, which is a hardcoded singleton with no close button
   and couldn't have supported more than one without a real rework).
   Content is a frozen snapshot at tear-off time, never re-synced.
-  **The real point of this pass**: card data moved off the static bundled
-  `Data/cards.json` (image/godot_scene/status stay there — asset/build
-  concerns) into 78 new `Card` nodes in the `tarot-deck` graph itself
-  (seeded once via `Grant/server/auth-service/seed-tarot-cards.js`, same
-  idempotent-seed-script pattern as `seed-personas.js`), joined back to
-  `cards.json`/`CardNode.deck_card_id` via each node's own `card_id`
-  property. Exactly the Trait pattern already established in this file
+  **The real point of this pass**: read card data out of the `tarot-deck`
+  graph's own `Card` nodes instead of the static bundled `Data/cards.json`
+  (which stays authoritative only for `image`/`godot_scene`/`status` —
+  asset/build concerns). A one-off seed script was written
+  (`Grant/server/auth-service/seed-tarot-cards.js`, same idempotent pattern
+  as `seed-personas.js`) to backfill these from `cards.json` if they were
+  ever missing — running it live turned up a genuine surprise: **all 78
+  `Card` nodes already existed**, richer than planned (each with a real
+  uploaded `portrait` image via Paradotz's gallery-node media feature, real
+  x/y canvas positions, `keywords_upright`/`keywords_reversed` as
+  already-comma-joined long-text rather than arrays) — evidently built
+  directly in Paradotz before this session, unrelated to any code path
+  ava_tarot itself reads. The seed script's own idempotency check (match by
+  `card_id`) correctly no-op'd against every one of them; nothing was
+  overwritten. Paratarot's own reading code was written against the
+  *schema*, not that assumption, so this cost nothing to discover: exactly
+  the Trait pattern already established in this file
   (`_parse_traits()`/`_ensure_trait_note_schema()`) applied to a second
-  node type: `_parse_card_props()` reads `Card`-typed nodes out of `_graph`
+  node type — `_parse_card_props()` reads `Card`-typed nodes out of `_graph`
   generically, and the hover/tear-away content builder
   (`_build_card_hover_content()`) walks the graph's own
-  `type_schemas["Card"].properties` in order rather than any hardcoded
-  field list — so Ava can add a wholly new Card property (a real prose
-  "meaning" field, say) directly in Paradotz and it shows up here with
-  zero Paratarot code change. This is deliberately read-only for now — no
-  in-app editing UI; Paradotz is the edit surface, per explicit direction.
+  `type_schemas["Card"].properties` in order, explicitly skipping any
+  `media_*`-typed property (the real schema's `portrait` field, in
+  particular) rather than a hardcoded field list — so Ava adding a wholly
+  new Card property (a real prose "meaning" field, say) directly in
+  Paradotz shows up here with zero Paratarot code change. Deliberately
+  read-only for now — no in-app editing UI; Paradotz is the edit surface,
+  per explicit direction. (Cosmetic, left alone rather than touched:
+  the live schema's `card_id` property is itself `show_in_hover: true`,
+  so it appears as its own line under the card's name — harmless, just
+  slightly redundant; easy for Ava to flip off in Paradotz if it bothers
+  her.)
   New `CardNode` signals `hover_entered`/`hover_exited` (none existed
   before — only tap/right-click did), relayed up through `SlotVisual` →
   `CardWorld` → `Main.gd` on the same pattern `tapped`/

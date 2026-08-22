@@ -828,6 +828,9 @@ func _build_card_hover_content(card_id: String) -> Dictionary:
 	for p in schema_props:
 		if not p.get("show_in_hover", false):
 			continue
+		var prop_type: String = p.get("type", "")
+		if prop_type.begins_with("media_"):
+			continue  # never the portrait/art — already on-screen as the card itself
 		var key: String = p.get("key", "")
 		var val = props.get(key)
 		if val == null:
