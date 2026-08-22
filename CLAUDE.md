@@ -480,33 +480,38 @@ the roadmap back up cold.
   this, since the client wasn't malfunctioning, it was correctly
   reflecting what the server told it. `close_session` now retires the
   session immediately in the same message handler, not on disconnect.
-- **Card info: docked bottom bar + right-click "Show Detail" (2026-08-22,
-  controller only)**: hovering any dealt card (slotted or loose) updates a
-  fixed info bar docked along the bottom of the table — content changes
-  live, position never moves. **First shipped as a mouse-following popup
-  with a "Tear away" button inside it; reworked same day** on direct
-  feedback that reaching the button meant moving off the card and into the
-  popup — precisely the problem that made Paradotz's own node-hover panel
-  static in the first place, so this mirrors that same fix rather than
-  re-fighting it. Tear-away moved to right-click → **"Show Detail"** on the
-  card's existing context menu (`_show_card_context_menu`/
-  `_show_loose_context_menu`) instead — a deliberate click, not a
-  hover-then-reach gesture — spawning an independent, closable, draggable
-  floating copy. Both the docked bar and every floating copy are **the
-  same underlying component**, `Nodes/ContextWindow.gd` (new file,
-  superseding the same day's shorter-lived `InfoWindow.gd`): one class,
-  `configure_docked()` vs. `configure_floating()`, "context windows that
-  can exist simultaneously" rather than two separate implementations.
-  Written with zero tarot-specific dependencies (just `set_content(header,
-  body)`) — the intended canonical version to copy into Paradotz (whose
-  own equivalent panel is genuinely bespoke, hardcoded into `Editor.gd` as
-  module-level singleton state, no class/scene) and Plotz later, same
-  "ported technique, not shared code" convention already used between
-  these three separate Godot projects — not done this pass, real future
-  work. Card content excludes the image (already on-screen as the card
-  itself), and never touches the card's image regardless of what Ava
-  calls the property (skips any `media_*`-typed schema property, not a
-  hardcoded field list). **The real point of this pass**: read card data out of the `tarot-deck`
+- **Card info: a hover-updated window near the bottom + right-click "Show
+  Detail" (2026-08-22, controller only)**: hovering any dealt card (slotted
+  or loose) updates a `ContextWindow` (new file, `Nodes/ContextWindow.gd`)
+  defaulted to a spot near the bottom of the table. **Went through two
+  reworks the same day** before landing here. First shipped as a
+  mouse-following popup with a "Tear away" button inside it — reworked on
+  direct feedback that reaching the button meant moving off the card and
+  into the popup, precisely the problem that made Paradotz's own
+  node-hover panel static in the first place. That rework made it a
+  fixed/anchored/non-interactive docked bar — reworked *again*, same day,
+  on further feedback: it isn't docked or anchored at all, it's just a
+  perfectly ordinary `ContextWindow` instance the user can drag, resize,
+  and close like any other (closing it just means the next hover creates a
+  fresh one back at the same default spot — see
+  `_ensure_hover_context_window()`). Tear-away lives at right-click →
+  **"Show Detail"** on the card's existing context menu
+  (`_show_card_context_menu`/`_show_loose_context_menu`) — a deliberate
+  click, not a hover-then-reach gesture — spawning an independent copy.
+  Every `ContextWindow` is identical: draggable via its header row,
+  resizable via three edge/corner handles (right/bottom/corner, same idea
+  as Paradotz's own resize handles), closable — "context windows that can
+  exist simultaneously," one class, not several variants. Written with
+  zero tarot-specific dependencies (just `set_content(header, body)`) — the
+  intended canonical version to copy into Paradotz (whose own equivalent
+  panel is genuinely bespoke, hardcoded into `Editor.gd` as module-level
+  singleton state, no class/scene) and Plotz later, same "ported
+  technique, not shared code" convention already used between these three
+  separate Godot projects — not done this pass, real future work. Card
+  content excludes the image (already on-screen as the card itself), and
+  never touches the card's image regardless of what Ava calls the property
+  (skips any `media_*`-typed schema property, not a hardcoded field list).
+  **The real point of this pass**: read card data out of the `tarot-deck`
   graph's own `Card` nodes instead of the static bundled `Data/cards.json`
   (which stays authoritative only for `image`/`godot_scene`/`status` —
   asset/build concerns). A one-off seed script was written

@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.23.1"
+const VERSION := "0.23.2"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -56,7 +56,7 @@ var _graph_session_node_id: String = ""  # this session's Session graph node, se
 var _deck_order: Array = []            # undealt cards, standing order, top = index 0 — see Deck section
 var _traits: Dictionary = {}           # trait_id -> name, parsed from _graph — see Traits section
 var _card_props: Dictionary = {}       # card_id -> Card node properties, parsed from _graph — see Card info section
-var _dock_context_window: ContextWindow = null  # controller mode only: the fixed bottom info bar
+var _hover_context_window: ContextWindow = null  # controller mode only: the window hover updates — just a regular ContextWindow, defaulted near the bottom, not docked/anchored
 var _info_windows: Array = []          # controller mode only: open floating ContextWindow instances (Show Detail)
 
 
@@ -191,7 +191,7 @@ func _setup_controller() -> void:
 	_world.deck_draw_requested.connect(_on_deck_draw_requested)
 	_world.deck_context_requested.connect(_show_deck_context_menu)
 	_world.card_hover_entered.connect(_on_card_hover_entered)
-	_build_dock_context_window()
+	_ensure_hover_context_window()
 
 	ApiClient.action_received.connect(_on_client_action_received)
 	ApiClient.client_joined.connect(_on_client_joined)
@@ -843,14 +843,17 @@ func _build_card_hover_content(card_id: String) -> Dictionary:
 	return {"header": header, "body": "\n".join(lines)}
 
 
-## Updates the fixed bottom bar's content in place — never moves, never
-## hides, so there's nothing to "reach." Deliberately leaves the last
-## card's info showing when the mouse moves off it (no card_hover_exited
-## handling at all) rather than reverting to a placeholder — less flicker,
-## matches "static and less intrusive."
+## Updates whichever card was last hovered in place — this window isn't
+## docked/anchored, just defaulted near the bottom (see
+## _ensure_hover_context_window()); the user can drag/resize/close it like
+## any other ContextWindow. Deliberately leaves the last card's info
+## showing when the mouse moves off it (no card_hover_exited handling at
+## all) rather than reverting to a placeholder — less flicker, matches
+## "static and less intrusive."
 func _on_card_hover_entered(card_id: String) -> void:
+	_ensure_hover_context_window()
 	var content: Dictionary = _build_card_hover_content(card_id)
-	_dock_context_window.set_content(content["header"], content["body"])
+	_hover_context_window.set_content(content["header"], content["body"])
 
 
 ## Right-click "Show Detail" (see _show_card_context_menu/
@@ -862,17 +865,25 @@ func _spawn_detail_window(card_id: String) -> void:
 	var win := ContextWindow.new()
 	add_child(win)
 	var pos := Vector2(PANEL_W + 60.0, 100.0) + Vector2(24.0, 24.0) * _info_windows.size()
-	win.configure_floating(pos)
+	win.configure(pos)
 	win.set_content(content["header"], content["body"])
 	win.closed.connect(func(w: ContextWindow) -> void: _info_windows.erase(w))
 	_info_windows.append(win)
 
 
-func _build_dock_context_window() -> void:
-	_dock_context_window = ContextWindow.new()
-	add_child(_dock_context_window)
-	_dock_context_window.configure_docked(PANEL_W, 140.0)
-	_dock_context_window.set_content("", "Hover a card, or right-click a card for a pinned copy.")
+## (Re)creates the hover window if it doesn't exist yet — either the very
+## first time, or after the user closes it (same "just a regular window"
+## rule: closing it is fine, the next hover simply gets a fresh one back
+## at the same default spot). Default position/size only — near the
+## bottom, wide and short — not an anchor; drag/resize apply immediately.
+func _ensure_hover_context_window() -> void:
+	if is_instance_valid(_hover_context_window):
+		return
+	_hover_context_window = ContextWindow.new()
+	add_child(_hover_context_window)
+	_hover_context_window.configure(Vector2(PANEL_W + 40.0, 880.0), Vector2(640.0, 160.0))
+	_hover_context_window.set_content("", "Hover a card, or right-click a card for a pinned copy.")
+	_hover_context_window.closed.connect(func(_w: ContextWindow) -> void: _hover_context_window = null)
 
 
 ## Registers Trait.note as "text_long" (Paradotz's long-text property type)

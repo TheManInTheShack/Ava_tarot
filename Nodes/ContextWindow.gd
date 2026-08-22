@@ -1,33 +1,40 @@
 class_name ContextWindow
 extends Panel
 
-## A reusable "context window": a header + BBCode property body, shown
-## either docked (one fixed instance, content updates live, e.g. on hover)
-## or floating (any number of independent, draggable, closable snapshots).
-## Deliberately zero dependencies on tarot-specific data — set_content()
-## takes plain strings, nothing else. This is the canonical version to copy
-## into Paradotz/Plotz if/when they want the same thing (their own
-## node-hover context panel and property inspector, respectively) — these
-## three Godot projects have no shared-package mechanism between them, so
-## "reusable" means "the same well-designed file," same as other ported
-## techniques already noted between them (pan/zoom, drag-then-track).
+## A reusable "context window": a header + BBCode property body, draggable
+## and resizable like Paradotz's own node-hover context panel. Deliberately
+## zero dependencies on tarot-specific data — set_content() takes plain
+## strings, nothing else. This is the canonical version to copy into
+## Paradotz/Plotz if/when they want the same thing (their own node-hover
+## context panel and property inspector, respectively) — these three Godot
+## projects have no shared-package mechanism between them, so "reusable"
+## means "the same well-designed file," same as other ported techniques
+## already noted between them (pan/zoom, drag-then-track).
 ##
-## Two configurations of the same object, not two implementations:
-## docked (Paratarot's bottom info bar) has no titlebar chrome and can't be
-## dragged or closed; floating (a torn-away snapshot) has both. Both share
-## the same header row and body RichTextLabel underneath.
+## Every instance is the same kind of object, "context windows that can
+## exist simultaneously" — Paratarot's bottom info bar is just the first
+## one, given a default near-the-bottom position/size via configure(); it
+## isn't docked or anchored, the user can drag/resize/close it exactly like
+## any window a right-click "Show Detail" spawns.
 
 signal closed(window: ContextWindow)
+
+const MIN_SIZE := Vector2(220.0, 120.0)
 
 var _header_label: Label
 var _close_button: Button
 var _body_label: RichTextLabel
-var _draggable: bool = false
 var _dragging: bool = false
 var _drag_offset: Vector2 = Vector2.ZERO
+var _resize_mode: String = ""  # "", "right", "bottom", "corner"
+var _resize_start_mouse: Vector2 = Vector2.ZERO
+var _resize_start_size: Vector2 = Vector2.ZERO
 
 
 func _ready() -> void:
+	custom_minimum_size = MIN_SIZE
+	z_index = 30
+
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.12, 0.12, 0.12)
 	sb.border_color = Color(0.32, 0.32, 0.32)
@@ -62,7 +69,6 @@ func _ready() -> void:
 	_close_button.text = "x"
 	_close_button.custom_minimum_size = Vector2(24.0, 24.0)
 	_close_button.focus_mode = Control.FOCUS_NONE
-	_close_button.visible = false
 	_close_button.pressed.connect(func() -> void:
 		closed.emit(self)
 		queue_free()
@@ -82,45 +88,38 @@ func _ready() -> void:
 
 	_body_label = RichTextLabel.new()
 	_body_label.bbcode_enabled = true
+	_body_label.scroll_active = true
+	_body_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	body_margin.add_child(_body_label)
 
+	# Anchored (not manually repositioned) so each strip tracks its own edge
+	# for free as the panel resizes. Built in this order — corner last —
+	# so the small overlapping region at the very corner resolves to the
+	# corner handle: later siblings receive input first in Godot.
+	_build_resize_handle("right", Control.CURSOR_HSIZE, 1.0, 0.0, 1.0, 1.0, -6.0, 0.0, 0.0, 0.0)
+	_build_resize_handle("bottom", Control.CURSOR_VSIZE, 0.0, 1.0, 1.0, 1.0, 0.0, -6.0, 0.0, 0.0)
+	_build_resize_handle("corner", Control.CURSOR_FDIAGSIZE, 1.0, 1.0, 1.0, 1.0, -12.0, -12.0, 0.0, 0.0)
 
-## Floating: fixed width, positioned once, draggable via its own header
-## row, closable. Body grows to fit its content — a one-off snapshot never
-## needs to scroll.
-func configure_floating(pos: Vector2, width: float = 260.0) -> void:
-	_draggable = true
-	_close_button.visible = true
-	z_index = 30
-	custom_minimum_size = Vector2(width, 0.0)
+
+func _build_resize_handle(mode: String, cursor: int, anchor_left: float, anchor_top: float, anchor_right: float, anchor_bottom: float, off_left: float, off_top: float, off_right: float, off_bottom: float) -> void:
+	var handle := Control.new()
+	handle.mouse_filter = Control.MOUSE_FILTER_STOP
+	handle.mouse_default_cursor_shape = cursor
+	handle.anchor_left = anchor_left
+	handle.anchor_top = anchor_top
+	handle.anchor_right = anchor_right
+	handle.anchor_bottom = anchor_bottom
+	handle.offset_left = off_left
+	handle.offset_top = off_top
+	handle.offset_right = off_right
+	handle.offset_bottom = off_bottom
+	handle.gui_input.connect(func(event: InputEvent) -> void: _on_resize_input(mode, event))
+	add_child(handle)
+
+
+func configure(pos: Vector2, initial_size: Vector2 = Vector2(320.0, 160.0)) -> void:
 	position = pos
-	_body_label.custom_minimum_size = Vector2(width - 16.0, 0.0)
-	_body_label.fit_content = true
-	_body_label.scroll_active = false
-
-
-## Docked: anchored to span from left_offset to the right edge (clearing
-## whatever sits to the left — Paratarot's side rollup panel, in
-## particular — not just the table), pinned to the bottom edge at a fixed
-## height. Not draggable, no close button — this instance is meant to
-## always be there. Content updates live (set_content() called repeatedly)
-## rather than being a one-time snapshot, so the body scrolls internally
-## instead of growing the bar past its fixed footprint.
-func configure_docked(left_offset: float, height: float) -> void:
-	_draggable = false
-	_close_button.visible = false
-	z_index = 15
-	anchor_left = 0.0
-	anchor_right = 1.0
-	anchor_top = 1.0
-	anchor_bottom = 1.0
-	offset_left = left_offset
-	offset_right = 0.0
-	offset_top = -height
-	offset_bottom = 0.0
-	_body_label.custom_minimum_size = Vector2(0.0, 0.0)
-	_body_label.fit_content = false
-	_body_label.scroll_active = true
+	size = initial_size
 
 
 func set_content(header: String, body: String) -> void:
@@ -137,10 +136,8 @@ func _apply_content(header: String, body: String) -> void:
 
 ## Same press-then-track-via-_input() technique CardWorld's own slot
 ## markers use — gui_input alone stops firing the instant the cursor
-## leaves the header row's own rect mid-drag.
+## leaves the header row's/handle's own rect mid-drag.
 func _on_header_input(event: InputEvent) -> void:
-	if not _draggable:
-		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
 			_dragging = true
@@ -150,10 +147,31 @@ func _on_header_input(event: InputEvent) -> void:
 			_dragging = false
 
 
+func _on_resize_input(mode: String, event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			_resize_mode = mode
+			_resize_start_mouse = get_global_mouse_position()
+			_resize_start_size = size
+			get_viewport().set_input_as_handled()
+		else:
+			_resize_mode = ""
+
+
 func _input(event: InputEvent) -> void:
-	if not _dragging:
-		return
-	if event is InputEventMouseMotion:
-		position = get_global_mouse_position() - _drag_offset
-	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
-		_dragging = false
+	if _dragging:
+		if event is InputEventMouseMotion:
+			position = get_global_mouse_position() - _drag_offset
+		elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+			_dragging = false
+	elif _resize_mode != "":
+		if event is InputEventMouseMotion:
+			var delta: Vector2 = get_global_mouse_position() - _resize_start_mouse
+			var new_size: Vector2 = _resize_start_size
+			if _resize_mode == "right" or _resize_mode == "corner":
+				new_size.x = max(MIN_SIZE.x, _resize_start_size.x + delta.x)
+			if _resize_mode == "bottom" or _resize_mode == "corner":
+				new_size.y = max(MIN_SIZE.y, _resize_start_size.y + delta.y)
+			size = new_size
+		elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+			_resize_mode = ""
