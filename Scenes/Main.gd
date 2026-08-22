@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.26.0"
+const VERSION := "0.27.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -59,6 +59,7 @@ var _card_props: Dictionary = {}       # card_id -> Card node properties, parsed
 var _hover_context_window: ContextWindow = null  # controller mode only: the window hover updates — just a regular ContextWindow, defaulted near the bottom, not docked/anchored
 var _ctx_on: bool = true  # "Ctx" button in ControllerPanel — see _on_ctx_toggled()
 var _info_windows: Array = []          # controller mode only: open floating ContextWindow instances (Show Detail)
+var _querent_worksheet: Worksheet = null  # controller mode only: open Querent worksheet, if any — see _on_querent_worksheet_toggled()
 
 
 func _ready() -> void:
@@ -185,7 +186,7 @@ func _setup_controller() -> void:
 	_panel.trait_toggled.connect(_on_trait_toggled)
 	_panel.client_focus_changed.connect(_refresh_traits_panel)
 	_panel.querent_focus_changed.connect(_refresh_querent_panel)
-	_panel.querent_note_saved.connect(_on_querent_note_saved)
+	_panel.querent_worksheet_toggled.connect(_on_querent_worksheet_toggled)
 	_panel.exit_pressed.connect(_on_exit_pressed)
 	_panel.ctx_toggled.connect(_on_ctx_toggled)
 	_world.card_tapped.connect(_on_controller_card_tapped)
@@ -913,7 +914,7 @@ func _spawn_detail_window(card_id: String) -> void:
 	var pos := Vector2(PANEL_W + 60.0, 100.0) + Vector2(24.0, 24.0) * _info_windows.size()
 	win.configure(pos)
 	win.set_content(content["header"], content["body"])
-	win.closed.connect(func(w: ContextWindow) -> void: _info_windows.erase(w))
+	win.closed.connect(func(w: FloatingWindow) -> void: _info_windows.erase(w))
 	_info_windows.append(win)
 
 
@@ -928,7 +929,7 @@ func _build_hover_context_window() -> void:
 	_hover_context_window.closed.connect(_on_hover_context_window_closed)
 
 
-func _on_hover_context_window_closed(_w: ContextWindow) -> void:
+func _on_hover_context_window_closed(_w: FloatingWindow) -> void:
 	_hover_context_window = null
 	_ctx_on = false
 	_panel.set_ctx_on(false)
@@ -1042,17 +1043,47 @@ func _focused_client_notes(client_id: String) -> String:
 	return ""
 
 
+## Keeps the rollup's own focus label in sync, and — if the Worksheet is
+## currently open — refreshes its content to the newly-focused client too
+## (any unsaved typed text is discarded, same tradeoff Traits' own Modify
+## editor already makes on a selection switch elsewhere in this repo).
 func _refresh_querent_panel() -> void:
+	_panel.set_querent_focus_label(_focused_querent_client_label())
+	if is_instance_valid(_querent_worksheet):
+		_open_or_refresh_querent_worksheet()
+
+
+## The Querent rollup's "Worksheet" button — a plain floating-window toggle,
+## same two-case shape as the Ctx button (_on_ctx_toggled): open it if it
+## doesn't exist, close it if it does. No "pick a client first" guard on
+## close, only on open.
+func _on_querent_worksheet_toggled() -> void:
+	if is_instance_valid(_querent_worksheet):
+		_querent_worksheet.queue_free()
+		_querent_worksheet = null
+		return
+	if _focused_querent_client_id() == "":
+		_panel.set_status("Pick a client first")
+		return
+	_querent_worksheet = Worksheet.new()
+	add_child(_querent_worksheet)
+	_querent_worksheet.configure(Vector2(PANEL_W + 60.0, 120.0), Vector2(360.0, 280.0))
+	_querent_worksheet.saved.connect(_on_querent_worksheet_saved)
+	_querent_worksheet.closed.connect(func(_w: FloatingWindow) -> void: _querent_worksheet = null)
+	_open_or_refresh_querent_worksheet()
+
+
+func _open_or_refresh_querent_worksheet() -> void:
 	var client_id := _focused_querent_client_id()
 	var notes: String = _focused_client_notes(client_id) if client_id != "" else ""
-	_panel.set_querent_notes(_focused_querent_client_label(), notes)
+	_querent_worksheet.set_form(_focused_querent_client_label(), notes)
 
 
 ## Writes straight onto the focused client's own Client node — a new
 ## "querent_note" WS message (grant-api), which creates the node first
 ## (same id scheme _ensure_client_node already uses) if this client has
 ## never had one (e.g. picked out-of-session with no prior reading yet).
-func _on_querent_note_saved(note: String) -> void:
+func _on_querent_worksheet_saved(_window: Worksheet, note: String) -> void:
 	var client_id: String = _focused_querent_client_id()
 	if client_id == "":
 		_panel.set_status("Pick a client first")

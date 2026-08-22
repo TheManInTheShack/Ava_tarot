@@ -639,6 +639,26 @@ the roadmap back up cold.
   exist yet (same id scheme `_ensure_client_node` already uses, so a
   client picked out-of-session with no prior reading doesn't end up with
   a duplicate node once a real session eventually happens with them).
+  **Reworked same day, twice**: the inline notes textbox was too cramped
+  for real use, so the rollup now just has a "Worksheet" toggle button —
+  the actual editing happens in a new floating `Worksheet` window instead.
+  Rather than bolt an "editable mode" onto `ContextWindow`, the shared
+  chrome (title bar drag, roll-up, close, three resize handles, styling)
+  was pulled out into a new base class, `Nodes/FloatingWindow.gd` —
+  `ContextWindow` (read-only BBCode body) and `Worksheet` (new file — an
+  editable `TextEdit` + explicit Save button, same "not live-per-keystroke"
+  reasoning as Theme/Payment) are both now thin subclasses that only
+  override `_build_body()`. Directly requested as "context window in
+  reverse" — same shell, opposite direction of data flow (display vs.
+  edit) — rather than one class doing double duty via a flag. Main.gd
+  owns the worksheet's lifecycle the same two-case shape as the Ctx button
+  (`_on_querent_worksheet_toggled()`): open it if it doesn't exist and a
+  client is focused, close it if it does; switching focus while it's open
+  refreshes its content to the newly-focused client (discarding any
+  unsaved typed text, same tradeoff Traits' own Modify editor already
+  makes on a selection switch). `ContextWindow`/`Worksheet` are still the
+  intended canonical files to copy into Paradotz/Plotz, now alongside
+  `FloatingWindow` as the shared foundation both build on.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started

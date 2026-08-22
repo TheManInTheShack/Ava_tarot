@@ -39,7 +39,7 @@ signal trait_modified(trait_id: String, name: String, note: String)
 signal trait_toggled(trait_id: String, has_trait: bool)  # add (true) / remove (false) for the focused client
 signal client_focus_changed()
 signal querent_focus_changed()
-signal querent_note_saved(note: String)
+signal querent_worksheet_toggled()
 signal exit_pressed()
 signal ctx_toggled()  # "Ctx" button — see Main.gd's _on_ctx_toggled(); style kept in sync via set_ctx_on()
 
@@ -130,7 +130,6 @@ var _querent_client_menu: MenuButton
 var _querent_clients: Array = []
 var _querent_selected_client_index: int = -1
 var _querent_focus_label: Label
-var _querent_notes_edit: TextEdit
 
 
 func _ready() -> void:
@@ -1262,17 +1261,14 @@ func _build_querent_section() -> void:
 	_querent_focus_label.text = "No client selected"
 	form.add_child(_querent_focus_label)
 
-	# Explicit Save, not live-per-keystroke — same reasoning as Session
-	# Theme/Payment (a half-typed note shouldn't get written either).
-	_querent_notes_edit = TextEdit.new()
-	_querent_notes_edit.custom_minimum_size = Vector2(0.0, 100.0)
-	_querent_notes_edit.placeholder_text = "Notes about this client, written back to their own node"
-	_querent_notes_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
-	form.add_child(_querent_notes_edit)
-	var save_notes_btn := Button.new()
-	save_notes_btn.text = "Save Notes"
-	save_notes_btn.pressed.connect(func() -> void: querent_note_saved.emit(_querent_notes_edit.text))
-	form.add_child(save_notes_btn)
+	# The rollup itself only ever toggles the worksheet open/closed now —
+	# it doesn't hold the note content inline anymore (that was too cramped
+	# for real use). Main.gd owns building/tracking the actual Worksheet
+	# floating window; this button is a pure trigger.
+	var worksheet_btn := Button.new()
+	worksheet_btn.text = "Worksheet"
+	worksheet_btn.pressed.connect(func() -> void: querent_worksheet_toggled.emit())
+	form.add_child(worksheet_btn)
 
 	_make_rollup("Querent", _rollup_color(5), form)
 
@@ -1306,14 +1302,11 @@ func get_querent_selected_client() -> Dictionary:
 	return _querent_clients[_querent_selected_client_index]
 
 
-## notes: the focused client's current notes, read straight from their own
-## Client node (Main._focused_client_notes()) — unlike Session Theme/Payment,
-## this is NOT reset per-session; it's client-persistent, so switching focus
-## (or starting a session with a given client) loads whatever's already
-## there rather than starting blank.
-func set_querent_notes(focus_label: String, notes: String) -> void:
+## The actual notes content now lives only in the Worksheet floating window
+## (Main.gd owns it) — this just keeps the rollup's own label in sync with
+## whichever client is currently focused.
+func set_querent_focus_label(focus_label: String) -> void:
 	_querent_focus_label.text = ("Notes for %s" % focus_label) if focus_label != "" else "No client selected"
-	_querent_notes_edit.text = notes
 
 
 const LAYER_LABELS := {"vertical": "Vertical", "horizontal": "Horizontal"}
