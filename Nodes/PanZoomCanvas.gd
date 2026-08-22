@@ -172,6 +172,22 @@ func _apply_world_transform() -> void:
 	_world.scale = Vector2(_zoom, _zoom)
 	_zoom_label.text = "%d%%" % roundi(_zoom * 100.0)
 	_zoom_slider.set_value_no_signal(_zoom * 100.0)
+	_on_view_changed()
+
+
+## Override in a subclass that draws anything computed from _world's
+## current transform (e.g. connecting lines between two children, cached
+## as absolute points rather than recomputed every _draw() call) — called
+## every time pan/zoom actually changes, not just when the underlying data
+## does. Cards/slots/etc. themselves need no such hook: their own
+## rendering just follows the composed transform automatically, same as
+## any Control. But a manual draw_line() in a DIFFERENT node's own _draw()
+## (CardWorld's, not _world's — the camera moving doesn't by itself
+## re-invoke a sibling/ancestor's _draw()) goes stale the instant the
+## camera moves unless something explicitly recomputes and redraws it —
+## exactly the bug Paradotz hit early on too. Base does nothing on its own.
+func _on_view_changed() -> void:
+	pass
 
 
 ## Fully generic — unions the bounding rects of `_world`'s direct Control

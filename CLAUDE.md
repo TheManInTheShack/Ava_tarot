@@ -745,7 +745,22 @@ the roadmap back up cold.
   concern. The client's own `CardWorld` gets pan/zoom/Fit too (harmless,
   arguably useful — it's pure local viewing, no shared state) but not
   Exit/Ctx, since `_build_top_bar_buttons()` is only ever called from the
-  controller setup path.
+  controller setup path. **Bug found immediately, same day**: connecting
+  lines (MODIFIES links, concept-node links) detached from their cards
+  while panning/zooming — "the same problem Paradotz had in the
+  beginning," per direct confirmation. Root cause: those lines are
+  `draw_line()` calls in `CardWorld`'s *own* `_draw()`, computed once into
+  `_modify_links`/`_concept_links` and cached as absolute points — but
+  panning/zooming only moves `_world` (a nested child), never `CardWorld`
+  itself, so nothing was re-invoking `CardWorld`'s `_draw()` or
+  recomputing those cached points just because the camera moved (only
+  drag/data changes ever did). Fixed generically in the base class:
+  `PanZoomCanvas._apply_world_transform()` now calls a new overridable
+  `_on_view_changed()` hook every time pan/zoom actually changes (covers
+  wheel-zoom, the slider, drag-pan, and Fit — every path already funneled
+  through this one function); `CardWorld` overrides it to do exactly what
+  every drag handler already does after moving something —
+  `_rebuild_modify_links()`/`_rebuild_concept_links()` + `queue_redraw()`.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started

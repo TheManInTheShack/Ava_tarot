@@ -791,6 +791,19 @@ func _find_card_node(deck_card_id: String) -> CardNode:
 ## middle of a slot's crossing pair can't tell you which of the two occupied
 ## cards it actually targets (they share the same center point), while an
 ## edge-to-edge line visibly terminates at one specific card.
+## Pan/zoom itself doesn't move a card, so nothing else would ever
+## re-trigger this — the lines are drawn in CardWorld's own _draw(), a
+## different node than _world (the thing that actually pans/zooms), and a
+## manual draw_line() doesn't automatically go stale-aware just because an
+## ancestor's transform changed. Same bug Paradotz hit early on with its
+## own equivalent (fixed there the same way — recompute on every camera
+## change, not just on data/drag changes).
+func _on_view_changed() -> void:
+	_rebuild_modify_links(_last_loose)
+	_rebuild_concept_links(_last_concept_active)
+	queue_redraw()
+
+
 func _rebuild_modify_links(loose: Dictionary) -> void:
 	_modify_links.clear()
 	var to_local: Transform2D = get_global_transform().affine_inverse()
