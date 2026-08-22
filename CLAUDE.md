@@ -659,6 +659,45 @@ the roadmap back up cold.
   makes on a selection switch). `ContextWindow`/`Worksheet` are still the
   intended canonical files to copy into Paradotz/Plotz, now alongside
   `FloatingWindow` as the shared foundation both build on.
+- **The Worksheet becomes schema-driven, same day**: the single hardcoded
+  `notes` field is now real graph data — a new `Worksheet` node type, one
+  per client (`"worksheet-" + client_id`, deterministic, mirroring
+  `"client-{user_id}"`), whose properties are graph-query-shaped pointers
+  (`{"graph","cypher","params","field"}`) rather than plain text — reusing
+  Paradotz's own `"graph_query"` type name outright (not a new type), so
+  Ava can inspect/edit a specific client's `client_notes` field's
+  underlying query directly in Paradotz's `NodePanel.gd` if she opens the
+  node there. **Genuinely schema-driven, not just graph-backed**:
+  `Main._resolve_worksheet_fields()` iterates *whatever* graph_query-shaped
+  properties the specific worksheet node currently has — not a hardcoded
+  `client_notes` check — so Ava adding a brand new property directly to
+  one client's Worksheet node in Paradotz (its existing "add property"
+  flow, no type-schema change needed first) shows up in that client's
+  Worksheet with zero Paratarot code change. Resolved live via a new
+  `ApiClient.query_graph()` (mirrors `get_graph()`/`save_graph()`,
+  `POST /graphs/{name}/query` — the same endpoint Paradotz's own
+  `GraphStore.query_graph()` calls); confirmed Kuzu's own parameter
+  binding (`kconn.execute(cypher, parameters=params)`) makes `params`
+  real, not vestigial. **A real tension, resolved deliberately**:
+  `graph_query` is read-only by design server-side
+  (`_assert_read_only_cypher` — a load-bearing guard, not incidental), so
+  it can't also be the write path for an editable field. Reading stays
+  fully general (arbitrary Cypher, whatever `field` names); saving is a
+  separate, generic `"set_node_property"` WS message (`grant-api`, plain
+  direct property-write by node id) — same trust level every other
+  mutation already has, not a new risk category — which **replaced** the
+  narrower Client-only `"querent_note"` handler outright (strictly
+  subsumed by the generic one). The query's own first-matched node id
+  *is* the write target (`Main._worksheet_field_targets`), discovered at
+  read time — no separate target bookkeeping needed. Creation (the
+  `Worksheet` node, its `HAS_WORKSHEET` edge, the `Client` node if it
+  doesn't exist yet) is entirely client-side, the same generic
+  read-mutate-write `GET`/`PUT /graphs/{name}` pattern Layout/Slot/Trait
+  creation already use — lazy and per-client, so unlike Card/Planet/
+  Element this needed no `Grant`-side seed script at all. `Worksheet.gd`
+  itself reworked from one fixed field to `set_fields()` — a dynamic,
+  scrollable list, each with its own label/TextEdit/Save, since the field
+  count is genuinely open-ended now.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started

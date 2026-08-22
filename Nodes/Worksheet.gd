@@ -3,49 +3,70 @@ extends FloatingWindow
 
 ## An editable form — "ContextWindow in reverse": the same floating-window
 ## shell (drag/resize/roll-up/close, see FloatingWindow) but the body is a
-## plain editable TextEdit with an explicit Save button, not a read-only
-## BBCode display. Same "explicit Save, not live-per-keystroke" reasoning
-## already used everywhere else in this repo (Session Theme, Payment,
-## Querent's own old inline field) — a half-typed edit shouldn't get
-## written just because the window happened to be open.
+## dynamic list of plain editable fields, each with its own explicit Save
+## button, not a read-only BBCode display. Same "explicit Save, not
+## live-per-keystroke" reasoning already used everywhere else in this repo.
 ##
-## First use: Paratarot's Querent worksheet (client notes) — the rollup
-## itself now just toggles one of these open/closed rather than holding
-## the text inline. Zero client-notes-specific code lives here though;
-## like ContextWindow, this takes plain strings and reports plain strings
-## back, nothing tarot-specific — same "copy the file, don't share the
-## code across repos" candidate for Paradotz/Plotz later.
+## Schema-driven, per the Querent worksheet's own design: the *set* of
+## fields shown isn't fixed by this class at all — Main.gd resolves
+## however many graph_query-shaped properties the backing Worksheet graph
+## node currently has (see Main._resolve_worksheet_fields()) and hands
+## them here as a plain list. Zero client-notes-specific code lives here —
+## like ContextWindow, this takes plain data in and reports plain data
+## back, nothing tarot-specific.
 
-signal saved(window: Worksheet, text: String)
+signal field_saved(window: Worksheet, key: String, text: String)
 
-var _body_edit: TextEdit
-var _save_button: Button
+var _field_edits: Dictionary = {}  # key -> TextEdit
+var _fields_vbox: VBoxContainer
 
 
 func _build_body(body_margin: MarginContainer) -> void:
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 6)
-	vbox.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body_margin.add_child(vbox)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	body_margin.add_child(scroll)
 
-	_body_edit = TextEdit.new()
-	_body_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
-	_body_edit.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vbox.add_child(_body_edit)
-
-	_save_button = Button.new()
-	_save_button.text = "Save"
-	_save_button.pressed.connect(func() -> void: saved.emit(self, _body_edit.text))
-	vbox.add_child(_save_button)
+	_fields_vbox = VBoxContainer.new()
+	_fields_vbox.add_theme_constant_override("separation", 10)
+	_fields_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(_fields_vbox)
 
 
-func set_form(header: String, text: String) -> void:
+## fields: [{"key": String, "label": String, "text": String}, ...] — however
+## many graph_query-shaped properties the backing Worksheet node currently
+## has, resolved to their current text. Rebuilds the whole field list each
+## call (open, or a focus-change refresh) — any unsaved typed text is
+## discarded, same tradeoff already accepted elsewhere in this repo for a
+## selection switch mid-edit.
+func set_fields(header: String, fields: Array) -> void:
 	if is_node_ready():
-		_apply_form(header, text)
+		_apply_fields(header, fields)
 	else:
-		ready.connect(func() -> void: _apply_form(header, text), CONNECT_ONE_SHOT)
+		ready.connect(func() -> void: _apply_fields(header, fields), CONNECT_ONE_SHOT)
 
 
-func _apply_form(header: String, text: String) -> void:
+func _apply_fields(header: String, fields: Array) -> void:
 	_header_label.text = header
-	_body_edit.text = text
+	_field_edits.clear()
+	for c in _fields_vbox.get_children():
+		c.queue_free()
+
+	for field in fields:
+		var key: String = field.get("key", "")
+		var label := Label.new()
+		label.text = field.get("label", key)
+		label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+		_fields_vbox.add_child(label)
+
+		var edit := TextEdit.new()
+		edit.custom_minimum_size = Vector2(0.0, 100.0)
+		edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+		edit.text = field.get("text", "")
+		_fields_vbox.add_child(edit)
+		_field_edits[key] = edit
+
+		var save_btn := Button.new()
+		save_btn.text = "Save"
+		save_btn.pressed.connect(func() -> void: field_saved.emit(self, key, edit.text))
+		_fields_vbox.add_child(save_btn)

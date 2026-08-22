@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.27.0"
+const VERSION := "0.28.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -60,6 +60,7 @@ var _hover_context_window: ContextWindow = null  # controller mode only: the win
 var _ctx_on: bool = true  # "Ctx" button in ControllerPanel — see _on_ctx_toggled()
 var _info_windows: Array = []          # controller mode only: open floating ContextWindow instances (Show Detail)
 var _querent_worksheet: Worksheet = null  # controller mode only: open Querent worksheet, if any — see _on_querent_worksheet_toggled()
+var _worksheet_field_targets: Dictionary = {}  # key -> resolved node id, from the most recent _resolve_worksheet_fields() call
 
 
 func _ready() -> void:
@@ -1033,16 +1034,6 @@ func _focused_querent_client_label() -> String:
 	return dn if dn != "" else info.get("username", "")
 
 
-## Read straight off the Client node's own properties — this is
-## client-persistent, unlike Session Theme/Payment, so it always reflects
-## whatever's actually saved there rather than resetting per-session.
-func _focused_client_notes(client_id: String) -> String:
-	for n in _graph.get("nodes", []):
-		if str(n.get("id", "")) == client_id:
-			return str(n.get("properties", {}).get("notes", ""))
-	return ""
-
-
 ## Keeps the rollup's own focus label in sync, and — if the Worksheet is
 ## currently open — refreshes its content to the newly-focused client too
 ## (any unsaved typed text is discarded, same tradeoff Traits' own Modify
@@ -1068,37 +1059,140 @@ func _on_querent_worksheet_toggled() -> void:
 	_querent_worksheet = Worksheet.new()
 	add_child(_querent_worksheet)
 	_querent_worksheet.configure(Vector2(PANEL_W + 60.0, 120.0), Vector2(360.0, 280.0))
-	_querent_worksheet.saved.connect(_on_querent_worksheet_saved)
+	_querent_worksheet.field_saved.connect(_on_worksheet_field_saved)
 	_querent_worksheet.closed.connect(func(_w: FloatingWindow) -> void: _querent_worksheet = null)
 	_open_or_refresh_querent_worksheet()
 
 
 func _open_or_refresh_querent_worksheet() -> void:
 	var client_id := _focused_querent_client_id()
-	var notes: String = _focused_client_notes(client_id) if client_id != "" else ""
-	_querent_worksheet.set_form(_focused_querent_client_label(), notes)
-
-
-## Writes straight onto the focused client's own Client node — a new
-## "querent_note" WS message (grant-api), which creates the node first
-## (same id scheme _ensure_client_node already uses) if this client has
-## never had one (e.g. picked out-of-session with no prior reading yet).
-func _on_querent_worksheet_saved(_window: Worksheet, note: String) -> void:
-	var client_id: String = _focused_querent_client_id()
 	if client_id == "":
-		_panel.set_status("Pick a client first")
 		return
-	var info: Dictionary = _pending_client if not _pending_client.is_empty() else _panel.get_querent_selected_client()
-	ApiClient.send_ws({
-		"type": "querent_note",
-		"payload": {
-			"client_id": client_id,
-			"username": info.get("username", ""),
-			"display_name": info.get("display_name", ""),
-			"note": note,
+	var worksheet_id: String = await _ensure_worksheet_node(client_id)
+	var fields: Array = await _resolve_worksheet_fields(worksheet_id)
+	_querent_worksheet.set_fields(_focused_querent_client_label(), fields)
+
+
+## Registers Worksheet.client_notes as "graph_query" (Paradotz's own
+## same-graph-reference-plus-network-query property type — reused, not
+## reinvented, so Ava can inspect/edit this in Paradotz's own NodePanel
+## too) in the graph's own type_schemas — same idempotent shape as
+## _ensure_trait_note_schema().
+func _ensure_worksheet_schema() -> void:
+	var schemas: Dictionary = _graph.get("type_schemas", {})
+	var schema: Dictionary = schemas.get("Worksheet", {})
+	var props: Array = schema.get("properties", [])
+	for p in props:
+		if p.get("key", "") == "client_notes":
+			return
+	props.append({"key": "client_notes", "type": "graph_query", "show_in_hover": true})
+	schema["properties"] = props
+	schemas["Worksheet"] = schema
+	_graph["type_schemas"] = schemas
+
+
+## One Worksheet node per client, deterministic id — no lookup needed to
+## know a client's worksheet id, only to know whether it exists yet.
+## Entirely client-side graph mutation (read-mutate-write), same pattern
+## already used for Layout/Slot/Trait creation — no bespoke server
+## endpoint, no seed script, since this is lazy and per-client rather than
+## bulk data. Creates the Client node too if this client has never had one
+## (e.g. picked out-of-session with no prior reading yet), mirroring the
+## server's own _ensure_client_node.
+func _ensure_worksheet_node(client_id: String) -> String:
+	var worksheet_id: String = "worksheet-%s" % client_id
+	for n in _graph.get("nodes", []):
+		if str(n.get("id", "")) == worksheet_id:
+			return worksheet_id
+
+	var nodes: Array = _graph.get("nodes", [])
+	var edges: Array = _graph.get("edges", [])
+
+	if not nodes.any(func(n): return str(n.get("id", "")) == client_id):
+		var info: Dictionary = _pending_client if not _pending_client.is_empty() else _panel.get_querent_selected_client()
+		var display_name: String = info.get("display_name", "")
+		nodes.append({
+			"id": client_id, "type": "Client",
+			"name": display_name if display_name != "" else info.get("username", client_id),
+			"properties": {},
+		})
+
+	nodes.append({
+		"id": worksheet_id, "type": "Worksheet", "name": "Worksheet",
+		"properties": {
+			"client_notes": {
+				"graph": GRAPH_NAME,
+				"cypher": "MATCH (c:Client) WHERE c.id = $client_id RETURN c",
+				"params": {"client_id": client_id},
+				"field": "notes",
+			},
 		},
 	})
-	_panel.set_status("Notes saved")
+	edges.append({"id": _next_id(), "from": client_id, "to": worksheet_id, "type": "HAS_WORKSHEET", "properties": {}})
+
+	_graph["nodes"] = nodes
+	_graph["edges"] = edges
+	_ensure_worksheet_schema()
+	await _save_graph()
+	return worksheet_id
+
+
+## Generalized, not hardcoded to client_notes: every property on this
+## specific worksheet node that looks graph_query-shaped (has "graph" and
+## "cypher" keys) gets resolved live and offered as an editable field —
+## however many there are right now. Remembers {key -> resolved node id}
+## in _worksheet_field_targets for the save step: the query's own first
+## matched node id *is* the write target, no separate bookkeeping needed.
+func _resolve_worksheet_fields(worksheet_id: String) -> Array:
+	_worksheet_field_targets.clear()
+	var worksheet_node: Dictionary = {}
+	for n in _graph.get("nodes", []):
+		if str(n.get("id", "")) == worksheet_id:
+			worksheet_node = n
+			break
+	var fields: Array = []
+	for key in worksheet_node.get("properties", {}).keys():
+		var val = worksheet_node["properties"][key]
+		if not (val is Dictionary) or not val.has("graph") or not val.has("cypher"):
+			continue
+		var result: Dictionary = await ApiClient.query_graph(val.get("graph", ""), val.get("cypher", ""), val.get("params", {}))
+		var matched: Array = result.get("nodes", [])
+		if matched.is_empty():
+			continue
+		var target_node: Dictionary = matched[0]
+		_worksheet_field_targets[key] = target_node.get("id", "")
+		var field_name: String = val.get("field", "")
+		fields.append({
+			"key": key,
+			"label": key.capitalize(),
+			"text": str(target_node.get("properties", {}).get(field_name, "")),
+		})
+	return fields
+
+
+## _worksheet_field_targets[key] is the real node id the field's query
+## resolved to — the write target is discovered by reading, not tracked
+## separately. A plain, generic "set this property on this node" write,
+## not arbitrary Cypher (graph_query stays read-only by design) — same
+## trust level every other WS mutation already has.
+func _on_worksheet_field_saved(_window: Worksheet, key: String, text: String) -> void:
+	var target_id: String = _worksheet_field_targets.get(key, "")
+	if target_id == "":
+		_panel.set_status("Nothing to save it to")
+		return
+	var worksheet_id: String = "worksheet-%s" % _focused_querent_client_id()
+	var field_name: String = ""
+	for n in _graph.get("nodes", []):
+		if str(n.get("id", "")) == worksheet_id:
+			field_name = n.get("properties", {}).get(key, {}).get("field", "")
+			break
+	if field_name == "":
+		return
+	ApiClient.send_ws({
+		"type": "set_node_property",
+		"payload": {"node_id": target_id, "field": field_name, "value": text},
+	})
+	_panel.set_status("Saved")
 
 
 func _on_trait_created(name: String) -> void:

@@ -125,6 +125,20 @@ func save_graph(name: String, data: Dictionary) -> Dictionary:
 	return parsed if parsed is Dictionary else {}
 
 
+## Runs a read-only Cypher query against a graph — the same generic
+## POST /graphs/{name}/query endpoint Paradotz's own GraphStore.query_graph()
+## calls, guarded server-side (read-only Cypher only). Returns
+## {"query_id","nodes","edges"} or {} on failure/error. For the Worksheet
+## feature — resolving a graph_query-shaped property's current value.
+func query_graph(name: String, cypher: String, params: Dictionary = {}) -> Dictionary:
+	var body := JSON.stringify({"cypher": cypher, "params": params})
+	var r: Array = await _req(HTTPClient.METHOD_POST, _base_url, "/graphs/" + name.uri_encode() + "/query", body)
+	if r[1] != 200:
+		return {}
+	var parsed: Variant = _parse_body(r)
+	return parsed if parsed is Dictionary else {}
+
+
 # ── WebSocket ────────────────────────────────────────────────────────────────
 
 func connect_ws(session_id: String) -> void:
