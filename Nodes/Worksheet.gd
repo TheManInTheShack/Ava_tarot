@@ -33,6 +33,28 @@ func _build_body(body_margin: MarginContainer) -> void:
 	scroll.add_child(_fields_vbox)
 
 
+## Shown immediately on open/refresh, before the (possibly several) queries
+## that resolve each field's actual value have come back — otherwise the
+## window sits blank for however long that round trip takes, with nothing
+## telling the user it's actually doing something.
+func set_loading(header: String) -> void:
+	if is_node_ready():
+		_apply_loading(header)
+	else:
+		ready.connect(func() -> void: _apply_loading(header), CONNECT_ONE_SHOT)
+
+
+func _apply_loading(header: String) -> void:
+	_header_label.text = header
+	_field_edits.clear()
+	for c in _fields_vbox.get_children():
+		c.queue_free()
+	var loading_label := Label.new()
+	loading_label.text = "Loading..."
+	loading_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	_fields_vbox.add_child(loading_label)
+
+
 ## fields: [{"key": String, "label": String, "text": String}, ...] — however
 ## many graph_query-shaped properties the backing Worksheet node currently
 ## has, resolved to their current text. Rebuilds the whole field list each

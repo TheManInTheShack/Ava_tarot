@@ -129,7 +129,6 @@ var _querent_picker_row: HBoxContainer  # client picker, visible only out-of-ses
 var _querent_client_menu: MenuButton
 var _querent_clients: Array = []
 var _querent_selected_client_index: int = -1
-var _querent_focus_label: Label
 
 
 func _ready() -> void:
@@ -1257,10 +1256,6 @@ func _build_querent_section() -> void:
 	_querent_picker_row.add_child(_querent_client_menu)
 	form.add_child(_querent_picker_row)
 
-	_querent_focus_label = Label.new()
-	_querent_focus_label.text = "No client selected"
-	form.add_child(_querent_focus_label)
-
 	# The rollup itself only ever toggles the worksheet open/closed now —
 	# it doesn't hold the note content inline anymore (that was too cramped
 	# for real use). Main.gd owns building/tracking the actual Worksheet
@@ -1300,13 +1295,6 @@ func get_querent_selected_client() -> Dictionary:
 	if _querent_selected_client_index < 0 or _querent_selected_client_index >= _querent_clients.size():
 		return {}
 	return _querent_clients[_querent_selected_client_index]
-
-
-## The actual notes content now lives only in the Worksheet floating window
-## (Main.gd owns it) — this just keeps the rollup's own label in sync with
-## whichever client is currently focused.
-func set_querent_focus_label(focus_label: String) -> void:
-	_querent_focus_label.text = ("Notes for %s" % focus_label) if focus_label != "" else "No client selected"
 
 
 const LAYER_LABELS := {"vertical": "Vertical", "horizontal": "Horizontal"}

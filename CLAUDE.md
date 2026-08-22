@@ -697,7 +697,13 @@ the roadmap back up cold.
   Element this needed no `Grant`-side seed script at all. `Worksheet.gd`
   itself reworked from one fixed field to `set_fields()` — a dynamic,
   scrollable list, each with its own label/TextEdit/Save, since the field
-  count is genuinely open-ended now.
+  count is genuinely open-ended now. **Follow-up same day**: added
+  `Worksheet.set_loading()` — shown immediately on open/refresh, since
+  resolving fields means a query per field over the network, not instant;
+  otherwise the window just sat blank for that whole round trip. Also
+  dropped the Querent rollup's "Notes for X" focus label — redundant now
+  that the rollup is just the Worksheet toggle button, the client's name
+  already shows in the Worksheet's own header.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started

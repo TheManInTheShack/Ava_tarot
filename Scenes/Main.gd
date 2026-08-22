@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.28.0"
+const VERSION := "0.28.1"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -1034,12 +1034,11 @@ func _focused_querent_client_label() -> String:
 	return dn if dn != "" else info.get("username", "")
 
 
-## Keeps the rollup's own focus label in sync, and — if the Worksheet is
-## currently open — refreshes its content to the newly-focused client too
-## (any unsaved typed text is discarded, same tradeoff Traits' own Modify
-## editor already makes on a selection switch elsewhere in this repo).
+## If the Worksheet is currently open, refreshes its content to the
+## newly-focused client too (any unsaved typed text is discarded, same
+## tradeoff Traits' own Modify editor already makes on a selection switch
+## elsewhere in this repo).
 func _refresh_querent_panel() -> void:
-	_panel.set_querent_focus_label(_focused_querent_client_label())
 	if is_instance_valid(_querent_worksheet):
 		_open_or_refresh_querent_worksheet()
 
@@ -1068,9 +1067,16 @@ func _open_or_refresh_querent_worksheet() -> void:
 	var client_id := _focused_querent_client_id()
 	if client_id == "":
 		return
+	var label := _focused_querent_client_label()
+	# Shown immediately — resolving fields means running a query per field
+	# over the network, not instant, and the window would otherwise just
+	# sit blank for that whole round trip.
+	_querent_worksheet.set_loading(label)
 	var worksheet_id: String = await _ensure_worksheet_node(client_id)
 	var fields: Array = await _resolve_worksheet_fields(worksheet_id)
-	_querent_worksheet.set_fields(_focused_querent_client_label(), fields)
+	if not is_instance_valid(_querent_worksheet):
+		return  # closed while the above was in flight
+	_querent_worksheet.set_fields(label, fields)
 
 
 ## Registers Worksheet.client_notes as "graph_query" (Paradotz's own
