@@ -491,18 +491,27 @@ the roadmap back up cold.
   node-hover panel static in the first place. That rework made it a
   fixed/anchored/non-interactive docked bar — reworked *again*, same day,
   on further feedback: it isn't docked or anchored at all, it's just a
-  perfectly ordinary `ContextWindow` instance the user can drag, resize,
-  and close like any other (closing it just means the next hover creates a
-  fresh one back at the same default spot — see
-  `_ensure_hover_context_window()`). Tear-away lives at right-click →
-  **"Show Detail"** on the card's existing context menu
-  (`_show_card_context_menu`/`_show_loose_context_menu`) — a deliberate
-  click, not a hover-then-reach gesture — spawning an independent copy.
-  Every `ContextWindow` is identical: draggable via its header row,
+  perfectly ordinary `ContextWindow` instance the user can drag and resize
+  like any other. Tear-away lives at right-click → **"Show Detail"** on
+  the card's existing context menu (`_show_card_context_menu`/
+  `_show_loose_context_menu`) — a deliberate click, not a hover-then-reach
+  gesture — spawning an independent copy. **Third same-day refinement**:
+  every `ContextWindow` — the hover one and every torn-away copy alike —
+  now has both a Paradotz-style roll-up toggle ("v"/">", collapses to just
+  the header row, `_toggle_roll()`) and a close ("x") button, plus a new
+  **"Ctx" button** in `ControllerPanel`'s top row (mirroring Paradotz's own
+  `Ctx` button exactly, including its font-dim/bright on/off styling) that
+  toggles the hover window's visibility — except closing the hover window
+  via its own (x) is a deliberate "turn this off," not undone by hovering
+  again; only pressing **Ctx** rebuilds a fresh one at the default spot
+  (`_on_ctx_toggled()`/`_build_hover_context_window()`), same two-case
+  logic as Paradotz's `_ctx_toggle()`. Pinned "Show Detail" copies are
+  entirely unaffected by Ctx/the hover window either way. Every
+  `ContextWindow` is otherwise identical: draggable via its header row,
   resizable via three edge/corner handles (right/bottom/corner, same idea
-  as Paradotz's own resize handles), closable — "context windows that can
-  exist simultaneously," one class, not several variants. Written with
-  zero tarot-specific dependencies (just `set_content(header, body)`) — the
+  as Paradotz's own resize handles) — "context windows that can exist
+  simultaneously," one class, not several variants. Written with zero
+  tarot-specific dependencies (just `set_content(header, body)`) — the
   intended canonical version to copy into Paradotz (whose own equivalent
   panel is genuinely bespoke, hardcoded into `Editor.gd` as module-level
   singleton state, no class/scene) and Plotz later, same "ported

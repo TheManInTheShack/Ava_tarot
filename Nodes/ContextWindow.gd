@@ -14,21 +14,27 @@ extends Panel
 ## Every instance is the same kind of object, "context windows that can
 ## exist simultaneously" — Paratarot's bottom info bar is just the first
 ## one, given a default near-the-bottom position/size via configure(); it
-## isn't docked or anchored, the user can drag/resize/close it exactly like
-## any window a right-click "Show Detail" spawns.
+## isn't docked or anchored, the user can drag/resize/roll-up/close it
+## exactly like any window a right-click "Show Detail" spawns. Every
+## instance has both a roll-up ("v"/">") toggle and a close ("x") button.
 
 signal closed(window: ContextWindow)
 
 const MIN_SIZE := Vector2(220.0, 120.0)
+const ROLLED_HEIGHT := 30.0  # just the header row — same idea as Paradotz's own roll-up (title_h)
 
 var _header_label: Label
 var _close_button: Button
+var _roll_button: Button
+var _body_margin: MarginContainer
 var _body_label: RichTextLabel
 var _dragging: bool = false
 var _drag_offset: Vector2 = Vector2.ZERO
 var _resize_mode: String = ""  # "", "right", "bottom", "corner"
 var _resize_start_mouse: Vector2 = Vector2.ZERO
 var _resize_start_size: Vector2 = Vector2.ZERO
+var _rolled: bool = false
+var _unrolled_height: float = 160.0
 
 
 func _ready() -> void:
@@ -65,6 +71,14 @@ func _ready() -> void:
 	_header_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	header_hbox.add_child(_header_label)
 
+	_roll_button = Button.new()
+	_roll_button.text = "v"
+	_roll_button.flat = true
+	_roll_button.focus_mode = Control.FOCUS_NONE
+	_roll_button.custom_minimum_size = Vector2(24.0, 24.0)
+	_roll_button.pressed.connect(_toggle_roll)
+	header_hbox.add_child(_roll_button)
+
 	_close_button = Button.new()
 	_close_button.text = "x"
 	_close_button.custom_minimum_size = Vector2(24.0, 24.0)
@@ -78,19 +92,19 @@ func _ready() -> void:
 	vbox.add_child(header_row)
 	vbox.add_child(HSeparator.new())
 
-	var body_margin := MarginContainer.new()
-	body_margin.add_theme_constant_override("margin_left", 8)
-	body_margin.add_theme_constant_override("margin_right", 8)
-	body_margin.add_theme_constant_override("margin_top", 6)
-	body_margin.add_theme_constant_override("margin_bottom", 8)
-	body_margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vbox.add_child(body_margin)
+	_body_margin = MarginContainer.new()
+	_body_margin.add_theme_constant_override("margin_left", 8)
+	_body_margin.add_theme_constant_override("margin_right", 8)
+	_body_margin.add_theme_constant_override("margin_top", 6)
+	_body_margin.add_theme_constant_override("margin_bottom", 8)
+	_body_margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(_body_margin)
 
 	_body_label = RichTextLabel.new()
 	_body_label.bbcode_enabled = true
 	_body_label.scroll_active = true
 	_body_label.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body_margin.add_child(_body_label)
+	_body_margin.add_child(_body_label)
 
 	# Anchored (not manually repositioned) so each strip tracks its own edge
 	# for free as the panel resizes. Built in this order — corner last —
@@ -120,6 +134,24 @@ func _build_resize_handle(mode: String, cursor: int, anchor_left: float, anchor_
 func configure(pos: Vector2, initial_size: Vector2 = Vector2(320.0, 160.0)) -> void:
 	position = pos
 	size = initial_size
+	_unrolled_height = initial_size.y
+
+
+## Same idea as Paradotz's own context panel: collapse to just the header
+## row, remembering the height to restore on the next toggle. Temporarily
+## drops custom_minimum_size's height floor too — otherwise Godot would
+## clamp .size.y right back up past ROLLED_HEIGHT.
+func _toggle_roll() -> void:
+	_rolled = not _rolled
+	if _rolled:
+		_unrolled_height = size.y
+		custom_minimum_size.y = ROLLED_HEIGHT
+		size.y = ROLLED_HEIGHT
+	else:
+		custom_minimum_size.y = MIN_SIZE.y
+		size.y = _unrolled_height
+	_body_margin.visible = not _rolled
+	_roll_button.text = ">" if _rolled else "v"
 
 
 func set_content(header: String, body: String) -> void:
@@ -170,8 +202,11 @@ func _input(event: InputEvent) -> void:
 			var new_size: Vector2 = _resize_start_size
 			if _resize_mode == "right" or _resize_mode == "corner":
 				new_size.x = max(MIN_SIZE.x, _resize_start_size.x + delta.x)
-			if _resize_mode == "bottom" or _resize_mode == "corner":
+			# Rolled: height stays pinned to the header row regardless of a
+			# vertical drag — unrolling is the only thing that changes it.
+			if not _rolled and (_resize_mode == "bottom" or _resize_mode == "corner"):
 				new_size.y = max(MIN_SIZE.y, _resize_start_size.y + delta.y)
+				_unrolled_height = new_size.y
 			size = new_size
 		elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
 			_resize_mode = ""

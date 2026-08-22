@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.23.2"
+const VERSION := "0.23.3"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -57,6 +57,7 @@ var _deck_order: Array = []            # undealt cards, standing order, top = in
 var _traits: Dictionary = {}           # trait_id -> name, parsed from _graph — see Traits section
 var _card_props: Dictionary = {}       # card_id -> Card node properties, parsed from _graph — see Card info section
 var _hover_context_window: ContextWindow = null  # controller mode only: the window hover updates — just a regular ContextWindow, defaulted near the bottom, not docked/anchored
+var _ctx_on: bool = true  # "Ctx" button in ControllerPanel — see _on_ctx_toggled()
 var _info_windows: Array = []          # controller mode only: open floating ContextWindow instances (Show Detail)
 
 
@@ -182,6 +183,7 @@ func _setup_controller() -> void:
 	_panel.trait_toggled.connect(_on_trait_toggled)
 	_panel.client_focus_changed.connect(_refresh_traits_panel)
 	_panel.exit_pressed.connect(_on_exit_pressed)
+	_panel.ctx_toggled.connect(_on_ctx_toggled)
 	_world.card_tapped.connect(_on_controller_card_tapped)
 	_world.card_context_requested.connect(_on_card_context_requested)
 	_world.slot_drag_ended.connect(_on_slot_updated)
@@ -191,7 +193,7 @@ func _setup_controller() -> void:
 	_world.deck_draw_requested.connect(_on_deck_draw_requested)
 	_world.deck_context_requested.connect(_show_deck_context_menu)
 	_world.card_hover_entered.connect(_on_card_hover_entered)
-	_ensure_hover_context_window()
+	_build_hover_context_window()
 
 	ApiClient.action_received.connect(_on_client_action_received)
 	ApiClient.client_joined.connect(_on_client_joined)
@@ -845,13 +847,17 @@ func _build_card_hover_content(card_id: String) -> Dictionary:
 
 ## Updates whichever card was last hovered in place — this window isn't
 ## docked/anchored, just defaulted near the bottom (see
-## _ensure_hover_context_window()); the user can drag/resize/close it like
-## any other ContextWindow. Deliberately leaves the last card's info
+## _build_hover_context_window()); the user can drag/resize/roll/close it
+## like any other ContextWindow. Deliberately leaves the last card's info
 ## showing when the mouse moves off it (no card_hover_exited handling at
 ## all) rather than reverting to a placeholder — less flicker, matches
-## "static and less intrusive."
+## "static and less intrusive." Does nothing while Ctx is off, and does
+## NOT resurrect the window if it's been closed — closing it is a
+## deliberate "turn this off" act now, undone via the Ctx button, not by
+## hovering again (see _on_ctx_toggled()).
 func _on_card_hover_entered(card_id: String) -> void:
-	_ensure_hover_context_window()
+	if not _ctx_on or not is_instance_valid(_hover_context_window):
+		return
 	var content: Dictionary = _build_card_hover_content(card_id)
 	_hover_context_window.set_content(content["header"], content["body"])
 
@@ -860,6 +866,8 @@ func _on_card_hover_entered(card_id: String) -> void:
 ## _show_loose_context_menu) — a deliberate click, not a hover-then-reach
 ## gesture, per direct feedback that the hover popup's own "Tear away"
 ## button was unreachable in practice. Content is frozen at creation time.
+## Independent of Ctx/the hover window — a pinned copy is never affected
+## by toggling or closing the live one.
 func _spawn_detail_window(card_id: String) -> void:
 	var content: Dictionary = _build_card_hover_content(card_id)
 	var win := ContextWindow.new()
@@ -871,19 +879,37 @@ func _spawn_detail_window(card_id: String) -> void:
 	_info_windows.append(win)
 
 
-## (Re)creates the hover window if it doesn't exist yet — either the very
-## first time, or after the user closes it (same "just a regular window"
-## rule: closing it is fine, the next hover simply gets a fresh one back
-## at the same default spot). Default position/size only — near the
-## bottom, wide and short — not an anchor; drag/resize apply immediately.
-func _ensure_hover_context_window() -> void:
-	if is_instance_valid(_hover_context_window):
-		return
+## Builds the hover window once, at startup — default position/size only
+## (near the bottom, wide and short), never an anchor; drag/resize/roll
+## apply immediately and freely from there.
+func _build_hover_context_window() -> void:
 	_hover_context_window = ContextWindow.new()
 	add_child(_hover_context_window)
 	_hover_context_window.configure(Vector2(PANEL_W + 40.0, 880.0), Vector2(640.0, 160.0))
 	_hover_context_window.set_content("", "Hover a card, or right-click a card for a pinned copy.")
-	_hover_context_window.closed.connect(func(_w: ContextWindow) -> void: _hover_context_window = null)
+	_hover_context_window.closed.connect(_on_hover_context_window_closed)
+
+
+func _on_hover_context_window_closed(_w: ContextWindow) -> void:
+	_hover_context_window = null
+	_ctx_on = false
+	_panel.set_ctx_on(false)
+
+
+## "Ctx" button. Two cases, same as Paradotz's own: normally just toggles
+## the existing window's visibility; but if it's been closed entirely
+## (queue_free()'d, not just hidden), pressing Ctx rebuilds a fresh one at
+## the default spot instead — closing it is a real "turn this off," undone
+## here, not by hovering again.
+func _on_ctx_toggled() -> void:
+	if not is_instance_valid(_hover_context_window):
+		_build_hover_context_window()
+		_ctx_on = true
+		_panel.set_ctx_on(true)
+		return
+	_ctx_on = not _ctx_on
+	_hover_context_window.visible = _ctx_on
+	_panel.set_ctx_on(_ctx_on)
 
 
 ## Registers Trait.note as "text_long" (Paradotz's long-text property type)
