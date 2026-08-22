@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.24.0"
+const VERSION := "0.25.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -150,6 +150,7 @@ func _setup_controller() -> void:
 	_world.anchor_bottom = 1.0
 	_world.offset_left = PANEL_W
 	add_child(_world)
+	_world.set_card_lookup(_deck)  # Planet/Element concept nodes — see CardWorld._refresh_concept_nodes()
 
 	_panel.start_pressed.connect(_on_start_pressed)
 	_panel.record_pressed.connect(_on_record_pressed)

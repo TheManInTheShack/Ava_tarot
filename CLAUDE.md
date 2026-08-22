@@ -576,6 +576,38 @@ the roadmap back up cold.
   in `_apply_active_layout()` on load/switch. A layout that's never saved
   one just leaves the window wherever it currently is, rather than
   snapping to a default.
+- **Planet/Element concept nodes (2026-08-22, controller only)**: two new
+  graph node types, `Planet` and `Element`, seeded once via
+  `Grant/server/auth-service/seed-tarot-concepts.js` (one node per distinct
+  value already present across the 78 `Card` nodes' own `element`/`planet`
+  properties — not a hardcoded textbook list) with a minimal `description`
+  (`text_long`) schema so Ava can attach real content to them in Paradotz
+  over time, same "enrich via Paradotz" pattern as `Card` itself. On the
+  table, a small non-card `ConceptNode` (new file, `Nodes/ConceptNode.gd`)
+  appears — connected by a line, "same feel" as the MODIFIES mechanic —
+  for every Planet/Element any currently dealt or loose card references,
+  and disappears once none do; draggable the same press-then-track way
+  loose cards are (`CardWorld._on_concept_drag_pressed`/
+  `_input_concept_drag`), position remembered for the session
+  (`_concept_positions`, not persisted to the graph — these are transient
+  table aids tied to what's in play, not permanent furniture like Slots).
+  **Deliberately no new property type or graph edge for the Card↔concept
+  link itself** — considered and rejected both `graph_query` (built
+  earlier this session; wrong tool, that's for a *different* graph over
+  the network) and `list_node` (Paradotz's existing same-graph reference
+  type — confirmed it stores/display the referenced node's name directly
+  with zero id-resolution, but Paradotz has **no reverse-lookup mechanism
+  anywhere**, and this feature's actual need is the reverse direction:
+  "given a Planet, which in-play cards reference it," not the forward
+  one). Computed entirely client-side instead: `CardWorld.set_card_lookup()`
+  hands it `Main._deck` (already fully populated with every card's
+  `element`/`planet` at all times, confirmed no extra graph read needed)
+  once; `_refresh_concept_nodes()`, called at the end of both
+  `apply_state()` and `set_loose()`, covers every one of `Main.gd`'s ~15
+  scattered state-mutation call sites for free, since they all funnel
+  through those two functions before anything renders — no new hook
+  needed anywhere in `Main.gd` itself. Card's own `element`/`planet` text
+  properties are completely untouched by this feature.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started

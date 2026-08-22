@@ -43,6 +43,18 @@ var _world: Control
 var _loose_nodes: Dictionary = {}    # deck_card_id -> CardNode, set via set_loose()
 var _modify_links: Array = []        # [[Vector2 from, Vector2 to], ...], world-local, for _draw()
 
+# Planet/Element concept nodes — controller-only (see _refresh_concept_nodes()).
+# _card_lookup is Main._deck itself, handed over once (set_card_lookup()) so a
+# recompute at the end of apply_state()/set_loose() covers every one of
+# Main.gd's ~15 scattered state-mutation call sites for free, with no new
+# hook needed at any of them.
+var _card_lookup: Dictionary = {}          # card_id -> {"element","planet",...} — Main._deck, by reference
+var _concept_nodes: Dictionary = {}        # "planet:Mercury"/"element:Air" -> ConceptNode
+var _concept_positions: Dictionary = {}    # same key -> Vector2, remembered for this session only, not persisted
+var _concept_links: Array = []             # [[Vector2 from, Vector2 to], ...], world-local, for _draw()
+var _last_cards_state: Dictionary = {}     # most recent apply_state() cards arg
+var _last_concept_active: Dictionary = {}  # concept key -> [card_id, ...], most recent _refresh_concept_nodes() result
+
 # Layout-editing (mod mode) slot markers — see set_layout_mod_mode().
 var _layout_mod_mode: bool = false
 var _slot_markers: Dictionary = {}   # slot_id -> Control, draggable placeholder shown only in mod mode
@@ -61,6 +73,13 @@ var _loose_press_start_local: Vector2 = Vector2.ZERO
 var _loose_drag_grab_offset: Vector2 = Vector2.ZERO
 var _loose_drag_orig_pos: Vector2 = Vector2.ZERO
 var _last_loose: Dictionary = {}  # most recent set_loose() call, so a live drag can re-run _rebuild_modify_links() mid-motion
+
+# Concept-node dragging — same press-then-track shape as the loose cards
+# above, separate state block since the drags are mutually exclusive.
+var _drag_concept_key: String = ""
+var _concept_dragging: bool = false
+var _concept_press_start_local: Vector2 = Vector2.ZERO
+var _concept_drag_grab_offset: Vector2 = Vector2.ZERO
 
 # Shared drag-hover highlight — at most one node highlighted at a time, used
 # by both the loose-card drag above and the edge drag below. _kind decides
@@ -110,6 +129,13 @@ func _ready() -> void:
 		_deck_visual.draw_started.connect(_on_deck_draw_started)
 		_deck_visual.context_requested.connect(func() -> void: deck_context_requested.emit())
 	_world.add_child(_deck_visual)
+
+
+## lookup is Main._deck itself, handed over by reference once — it never
+## changes at runtime (loaded once from Data/cards.json), so this is the
+## only wiring _refresh_concept_nodes() needs.
+func set_card_lookup(lookup: Dictionary) -> void:
+	_card_lookup = lookup
 
 
 ## slots: {slot_id: {"name": String, "x": float, "y": float}} — loaded from
@@ -249,6 +275,8 @@ func _input(event: InputEvent) -> void:
 		_input_edge_drag(event)
 	elif _dragging_deck:
 		_input_deck_drag(event)
+	elif _drag_concept_key != "":
+		_input_concept_drag(event)
 
 
 func _input_slot_drag(event: InputEvent) -> void:
@@ -652,6 +680,7 @@ func begin_loose_drag(card_id: String) -> void:
 ## to both filter and mark which layers are currently tappable — layers are
 ## controlled independently, per Meta/Reading-Model.md.
 func apply_state(cards: Dictionary, acl: Dictionary = {}) -> void:
+	_last_cards_state = cards
 	if is_client:
 		# "_deck"/"deck" and "_layout"/"layout" are pseudo slot_id/layer
 		# pairs, not real ones — reuses the exact same ACL shape as a card
@@ -679,6 +708,7 @@ func apply_state(cards: Dictionary, acl: Dictionary = {}) -> void:
 			var can_act: Array = layer_acl.get("actions", [])
 			var interactive: bool = acl.is_empty() or can_act.size() > 0
 			visual.set_layer(layer, info, interactive)
+	_refresh_concept_nodes()
 
 
 ## loose: {deck_card_id: {"name","face_up","orientation","x","y",
@@ -722,6 +752,7 @@ func set_loose(loose: Dictionary, interactive: bool = true) -> void:
 
 	_last_loose = loose
 	_rebuild_modify_links(loose)
+	_refresh_concept_nodes()
 	queue_redraw()
 
 
@@ -798,7 +829,140 @@ func _link_anchor_point(node: CardNode, is_target: bool) -> Vector2:
 	return bottom_center
 
 
+# ── Planet/Element concept nodes ────────────────────────────────────────────
+# Controller-only, driven entirely from _last_cards_state/_last_loose — no
+# ACL modeled, same as loose cards themselves today. A concept is "active"
+# whenever any currently in-play card's element/planet (looked up in
+# _card_lookup, i.e. Main._deck) matches it; created/pruned to match exactly
+# what's active right now, same create/prune shape as set_loose() itself.
+
+func _refresh_concept_nodes() -> void:
+	if is_client:
+		return
+	var in_play_ids: Array = []
+	for slot_info in _last_cards_state.values():
+		for layer in LAYERS:
+			var info = slot_info.get(layer)
+			if info != null:
+				var dcid: String = str(info.get("deck_card_id", ""))
+				if dcid != "":
+					in_play_ids.append(dcid)
+	for card_id in _last_loose.keys():
+		in_play_ids.append(card_id)
+
+	var active: Dictionary = {}  # concept key -> [card_id, ...]
+	for card_id in in_play_ids:
+		var rec: Dictionary = _card_lookup.get(card_id, {})
+		var element: String = str(rec.get("element", ""))
+		var planet: String = str(rec.get("planet", ""))
+		if element != "" and element != "null":
+			var ek := "element:%s" % element
+			var earr: Array = active.get(ek, [])
+			earr.append(card_id)
+			active[ek] = earr
+		if planet != "" and planet != "null":
+			var pk := "planet:%s" % planet
+			var parr: Array = active.get(pk, [])
+			parr.append(card_id)
+			active[pk] = parr
+
+	for key in _concept_nodes.keys().duplicate():
+		if not active.has(key):
+			_concept_nodes[key].queue_free()
+			_concept_nodes.erase(key)
+	for key in active.keys():
+		if not _concept_nodes.has(key):
+			_concept_nodes[key] = _make_concept_node(key, active[key][0])
+
+	_last_concept_active = active
+	_rebuild_concept_links(active)
+	queue_redraw()
+
+
+func _make_concept_node(key: String, first_card_id: String) -> ConceptNode:
+	var colon_idx: int = key.find(":")
+	var kind: String = key.substr(0, colon_idx)
+	var display_name: String = key.substr(colon_idx + 1)
+	var node := ConceptNode.new()
+	node.key = key
+	node.drag_pressed.connect(_on_concept_drag_pressed)
+	_world.add_child(node)
+	node.setup(display_name, kind)
+	node.position = _concept_positions.get(key, _default_concept_spawn(first_card_id))
+	return node
+
+
+## Spawns near the first card that referenced it, offset up-and-right —
+## falls back to a fixed spot if that card's own node can't be found for
+## some reason (shouldn't normally happen, since it's in _last_cards_state/
+## _last_loose by construction).
+func _default_concept_spawn(first_card_id: String) -> Vector2:
+	var card_node: CardNode = _find_card_node(first_card_id)
+	if card_node != null:
+		var to_local: Transform2D = get_global_transform().affine_inverse()
+		var anchor: Vector2 = to_local * (card_node.get_layer_transform() * _link_anchor_point(card_node, true))
+		return anchor + Vector2(90.0, -70.0)
+	return Vector2(400.0, 200.0)
+
+
+func _rebuild_concept_links(active: Dictionary) -> void:
+	_concept_links.clear()
+	var to_local: Transform2D = get_global_transform().affine_inverse()
+	for key in active.keys():
+		var node: ConceptNode = _concept_nodes.get(key)
+		if node == null:
+			continue
+		var from_pt: Vector2 = to_local * (node.get_global_transform() * node.attach_point())
+		for card_id in active[key]:
+			var card_node: CardNode = _find_card_node(card_id)
+			if card_node == null:
+				continue
+			var to_pt: Vector2 = to_local * (card_node.get_layer_transform() * _link_anchor_point(card_node, true))
+			_concept_links.append([from_pt, to_pt])
+
+
+func _on_concept_drag_pressed(key: String) -> void:
+	var node: ConceptNode = _concept_nodes.get(key)
+	if node == null:
+		return
+	_drag_concept_key = key
+	_concept_press_start_local = _world.get_local_mouse_position()
+	_concept_drag_grab_offset = node.position - _concept_press_start_local
+	_concept_dragging = false
+	node.get_parent().move_child(node, node.get_parent().get_child_count() - 1)
+	set_process_input(true)
+
+
+func _input_concept_drag(event: InputEvent) -> void:
+	if event is InputEventMouseMotion:
+		var cur: Vector2 = _world.get_local_mouse_position()
+		if not _concept_dragging and cur.distance_to(_concept_press_start_local) > DRAG_THRESHOLD:
+			_concept_dragging = true
+		if _concept_dragging:
+			var node: ConceptNode = _concept_nodes.get(_drag_concept_key)
+			if node != null:
+				node.position = cur + _concept_drag_grab_offset
+				_rebuild_concept_links(_last_concept_active)
+				queue_redraw()
+			get_viewport().set_input_as_handled()
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		_end_concept_drag()
+		get_viewport().set_input_as_handled()
+
+
+func _end_concept_drag() -> void:
+	var key: String = _drag_concept_key
+	var node: ConceptNode = _concept_nodes.get(key)
+	_drag_concept_key = ""
+	_concept_dragging = false
+	set_process_input(false)
+	if node != null:
+		_concept_positions[key] = node.position
+
+
 func _draw() -> void:
+	for link in _concept_links:
+		draw_line(link[0], link[1], Color(0.4, 0.65, 0.85, 0.7), 2.0)
 	for link in _modify_links:
 		draw_line(link[0], link[1], Color(0.7, 0.55, 0.85, 0.8), 2.0)
 	if _edge_drag_source_id != "":
