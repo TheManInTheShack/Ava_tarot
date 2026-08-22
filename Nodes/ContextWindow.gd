@@ -144,6 +144,20 @@ func configure(pos: Vector2, initial_size: Vector2 = Vector2(320.0, 160.0)) -> v
 	_unrolled_height = initial_size.y
 
 
+## For persisting this window's geometry (Paratarot saves the hover
+## window's spot per-Layout). Always reports the unrolled height, not
+## whatever ROLLED_HEIGHT currently is, so a save made while rolled still
+## restores to a sensible size when unrolled later — "rolled" is reported
+## separately and re-applied via set_rolled().
+func get_geometry() -> Dictionary:
+	return {"x": position.x, "y": position.y, "width": size.x, "height": _unrolled_height, "rolled": _rolled}
+
+
+func set_rolled(value: bool) -> void:
+	if value != _rolled:
+		_toggle_roll()
+
+
 ## Same idea as Paradotz's own context panel: collapse to just the header
 ## row, remembering the height to restore on the next toggle. Temporarily
 ## drops custom_minimum_size's height floor too — otherwise Godot would

@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.23.4"
+const VERSION := "0.24.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -262,7 +262,10 @@ func _parse_layouts() -> void:
 	for n in nodes:
 		node_by_id[str(n.get("id", ""))] = n
 		if n.get("type", "") == "Layout":
-			_layouts[str(n["id"])] = {"name": n.get("name", "")}
+			_layouts[str(n["id"])] = {
+				"name": n.get("name", ""),
+				"ctx_window": n.get("properties", {}).get("ctx_window", {}),
+			}
 
 	var slot_layout: Dictionary = {}   # slot_id -> layout_id
 	for e in edges:
@@ -329,6 +332,15 @@ func _apply_active_layout() -> void:
 	var active_slots := _slots_for_layout(_active_layout_id)
 	_panel.set_slots(active_slots)
 	_world.set_slots(active_slots)
+	# Restores the hover context window's position/size/rolled state if this
+	# layout has ever saved one (see _on_slots_saved) — leaves the window
+	# wherever it currently is otherwise, rather than snapping to a default.
+	var ctx_win: Dictionary = _layouts.get(_active_layout_id, {}).get("ctx_window", {})
+	if not ctx_win.is_empty() and is_instance_valid(_hover_context_window):
+		_hover_context_window.configure(
+			Vector2(ctx_win.get("x", 0.0), ctx_win.get("y", 0.0)),
+			Vector2(ctx_win.get("width", 320.0), ctx_win.get("height", 160.0)))
+		_hover_context_window.set_rolled(ctx_win.get("rolled", false))
 	# Carried in every subsequent "state" WS push for free (same _state dict
 	# every existing send_ws({"type":"state",...}) call already sends) — the
 	# client has no other way to learn slot geometry, since it has no graph
@@ -549,6 +561,16 @@ func _on_slots_saved(updates: Array) -> void:
 		var info: Dictionary = _slots.get(slot_id, {})
 		_set_layer_deal_order(nodes, info.get("vertical_id", ""), u.get("v_order", 0))
 		_set_layer_deal_order(nodes, info.get("horizontal_id", ""), u.get("h_order", 0))
+	# Same batch commit, same reasoning: "save the layout" should also mean
+	# "remember where I left the context window" for next time this layout
+	# is active — lives on the Layout node itself, not per-slot.
+	if is_instance_valid(_hover_context_window):
+		for n in nodes:
+			if str(n.get("id", "")) == _active_layout_id:
+				var layout_props: Dictionary = n.get("properties", {})
+				layout_props["ctx_window"] = _hover_context_window.get_geometry()
+				n["properties"] = layout_props
+				break
 	await _save_graph()
 	_parse_layouts()
 	_apply_active_layout()

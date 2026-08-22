@@ -555,12 +555,27 @@ the roadmap back up cold.
   New `CardNode` signal `hover_entered` (none existed before — only
   tap/right-click did), relayed up through `SlotVisual` → `CardWorld` →
   `Main.gd` on the same pattern `tapped`/`context_requested` already use.
-  No `hover_exited` handling anywhere — the dock bar deliberately keeps
+  No `hover_exited` handling anywhere — the hover window deliberately keeps
   showing the last-hovered card's info rather than reverting to a
   placeholder the moment the mouse moves off it, which is what "static and
   less intrusive" actually meant in practice; this also made the original
   version's grace-period hide-timer hack unnecessary, not just its
-  "Tear away" button.
+  "Tear away" button. **Two follow-up fixes/additions, same day:** (1) the
+  header row's `MarginContainer` was missing `size_flags_horizontal =
+  EXPAND_FILL` — its parent is a Container, which ignores a child's own
+  anchor presets entirely, so it shrank to minimum size and sat at the
+  header's left edge, dragging the roll/close buttons in next to the title
+  instead of pinned to the window's right edge (this is why they read as
+  "on the left"). (2) **The hover window's position/size/rolled state now
+  saves with the Layout**, per explicit ask — a `ctx_window` property on
+  the Layout graph node itself (`{"x","y","width","height","rolled"}`,
+  `ContextWindow.get_geometry()`/`set_rolled()`), written into the same
+  batch `_on_slots_saved()` already commits on "Save Layout" (not a new
+  auto-save trigger — matches this repo's own established "preview live,
+  persist only on explicit Save Layout" convention exactly), and restored
+  in `_apply_active_layout()` on load/switch. A layout that's never saved
+  one just leaves the window wherever it currently is, rather than
+  snapping to a default.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started
