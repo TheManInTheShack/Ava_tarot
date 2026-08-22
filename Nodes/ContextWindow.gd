@@ -60,7 +60,14 @@ func _ready() -> void:
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 8)
 	margin.add_theme_constant_override("margin_right", 4)
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# header_row's parent is a Container (VBoxContainer), which ignores a
+	# child's own anchors entirely and sizes it by size_flags instead — a
+	# preset-only margin (no expand flag) shrinks to its minimum size and
+	# sits at header_row's left edge, taking the label+buttons cluster with
+	# it instead of spanning the row, which is why the buttons read as
+	# stuck on the left rather than pinned to the window's right edge.
+	margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	header_row.add_child(margin)
 	var header_hbox := HBoxContainer.new()
 	margin.add_child(header_hbox)
