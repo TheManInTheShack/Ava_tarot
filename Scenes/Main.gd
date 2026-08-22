@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.22.4"
+const VERSION := "0.23.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -55,6 +55,13 @@ var _next_id_counter: int = 1          # shared node/edge id counter, seeded fro
 var _graph_session_node_id: String = ""  # this session's Session graph node, set at Start Reading
 var _deck_order: Array = []            # undealt cards, standing order, top = index 0 — see Deck section
 var _traits: Dictionary = {}           # trait_id -> name, parsed from _graph — see Traits section
+var _card_props: Dictionary = {}       # card_id -> Card node properties, parsed from _graph — see Card info section
+var _hover_popup: Panel = null         # controller mode only: the single card-hover popup
+var _hover_header_label: Label = null
+var _hover_body_label: RichTextLabel = null
+var _hover_hide_timer: Timer = null    # grace period so the mouse can reach the popup's Tear away button
+var _hover_card_id: String = ""        # controller mode only: card_id the hover popup currently shows, "" if hidden
+var _info_windows: Array = []          # controller mode only: open InfoWindow instances (tear-away card info)
 
 
 func _ready() -> void:
@@ -187,6 +194,9 @@ func _setup_controller() -> void:
 	_world.loose_edge_resolved.connect(_on_loose_edge_resolved)
 	_world.deck_draw_requested.connect(_on_deck_draw_requested)
 	_world.deck_context_requested.connect(_show_deck_context_menu)
+	_world.card_hover_entered.connect(_on_card_hover_entered)
+	_world.card_hover_exited.connect(_on_card_hover_exited)
+	_build_hover_popup()
 
 	ApiClient.action_received.connect(_on_client_action_received)
 	ApiClient.client_joined.connect(_on_client_joined)
@@ -213,6 +223,7 @@ func _load_layouts() -> void:
 		_graph = {"name": GRAPH_NAME}
 	_seed_id_counter()
 	_parse_layouts()
+	_parse_card_props()
 	if _layouts.is_empty():
 		_bootstrap_default_layout()
 		await _save_graph()
@@ -710,6 +721,7 @@ func _resync_graph() -> void:
 		_graph = fresh
 		_seed_id_counter()
 		_parse_layouts()
+		_parse_card_props()
 
 
 func _on_end_pressed() -> void:
@@ -778,6 +790,144 @@ func _parse_traits() -> void:
 				"name": n.get("name", ""),
 				"note": n.get("properties", {}).get("note", ""),
 			}
+
+
+# ── Card info (hover panel + tear-away) ─────────────────────────────────────
+# Card nodes live in the tarot-deck graph (seeded once via
+# server/auth-service/seed-tarot-cards.js in the Grant repo — same graph
+# Paradotz itself edits, GET/PUT /graphs/tarot-deck), keyed to
+# Data/cards.json's card ids via each node's own "card_id" property. Ava
+# enriches this content (and can add wholly new properties) through Paradotz
+# directly — _build_card_hover_bbcode() below reads whatever properties the
+# graph's own Card type schema currently declares, never a hardcoded list,
+# so new properties show up here with no code change.
+
+func _parse_card_props() -> void:
+	_card_props.clear()
+	for n in _graph.get("nodes", []):
+		if n.get("type", "") == "Card":
+			var cid: String = str(n.get("properties", {}).get("card_id", ""))
+			if cid != "":
+				_card_props[cid] = n.get("properties", {})
+
+
+## header + BBCode body for a card, built from whatever the tarot-deck
+## graph's own Card type schema currently declares — same formatting rule
+## as Paradotz's Editor.gd:_ctx_update_node() (schema order, skip
+## show_in_hover == false, "[color=#8899bb]key:[/color] value", comma-joined
+## lists) so this needs no changes when Ava adds a new Card property in
+## Paradotz. Never touches image/godot_scene/status — those were never
+## migrated into properties, so there's nothing to accidentally show.
+func _build_card_hover_content(card_id: String) -> Dictionary:
+	var props: Dictionary = _card_props.get(card_id, {})
+	var deck_info: Dictionary = _deck.get(card_id, {})
+	var header: String = deck_info.get("name", card_id)
+	var schema: Dictionary = _graph.get("type_schemas", {}).get("Card", {})
+	var schema_props: Array = schema.get("properties", [])
+	var lines: PackedStringArray = PackedStringArray()
+	for p in schema_props:
+		if not p.get("show_in_hover", false):
+			continue
+		var key: String = p.get("key", "")
+		var val = props.get(key)
+		if val == null:
+			continue
+		if val is Array:
+			var av: Array = val as Array
+			if av.is_empty():
+				continue
+			var parts: PackedStringArray = PackedStringArray()
+			for item in av:
+				parts.append(str(item))
+			lines.append("[color=#8899bb]%s:[/color] %s" % [key, ", ".join(parts)])
+		elif str(val) != "":
+			lines.append("[color=#8899bb]%s:[/color] %s" % [key, str(val)])
+	return {"header": header, "body": "\n".join(lines)}
+
+
+func _on_card_hover_entered(card_id: String) -> void:
+	_hover_hide_timer.stop()
+	_hover_card_id = card_id
+	var content: Dictionary = _build_card_hover_content(card_id)
+	_hover_header_label.text = content["header"]
+	_hover_body_label.text = content["body"]
+	_hover_popup.position = get_global_mouse_position() + Vector2(24.0, 12.0)
+	_hover_popup.visible = true
+
+
+func _on_card_hover_exited(card_id: String) -> void:
+	if card_id == _hover_card_id:
+		_hover_hide_timer.start()
+
+
+## Called both when the mouse leaves the hover popup itself and (after a
+## short grace period — see _hover_hide_timer) when it leaves the card. The
+## grace period is what lets the mouse actually reach the "Tear away"
+## button: without it, the straight-line gap between the card and the
+## popup's own position would fire the card's mouse_exited before the
+## popup's mouse_entered ever catches it, hiding the popup out from under
+## the cursor before a click could land.
+func _hide_hover_popup() -> void:
+	_hover_popup.visible = false
+	_hover_card_id = ""
+
+
+func _on_tear_away_pressed() -> void:
+	if _hover_card_id == "":
+		return
+	var content: Dictionary = _build_card_hover_content(_hover_card_id)
+	var win := InfoWindow.new()
+	add_child(win)
+	win.setup(content["header"], content["body"])
+	win.position = _hover_popup.position + Vector2(24.0 * _info_windows.size(), 24.0 * _info_windows.size())
+	win.closed.connect(func(w: InfoWindow) -> void: _info_windows.erase(w))
+	_info_windows.append(win)
+	_hide_hover_popup()
+
+
+func _build_hover_popup() -> void:
+	_hover_popup = Panel.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.12, 0.12, 0.12)
+	sb.border_color = Color(0.32, 0.32, 0.32)
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(5)
+	sb.set_content_margin_all(8)
+	_hover_popup.add_theme_stylebox_override("panel", sb)
+	_hover_popup.custom_minimum_size = Vector2(220.0, 0.0)
+	_hover_popup.mouse_filter = Control.MOUSE_FILTER_STOP
+	_hover_popup.z_index = 25
+	_hover_popup.visible = false
+	_hover_popup.mouse_entered.connect(func() -> void: _hover_hide_timer.stop())
+	_hover_popup.mouse_exited.connect(func() -> void: _hover_hide_timer.start())
+	add_child(_hover_popup)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 4)
+	_hover_popup.add_child(vbox)
+
+	_hover_header_label = Label.new()
+	_hover_header_label.add_theme_font_size_override("font_size", 15)
+	vbox.add_child(_hover_header_label)
+	vbox.add_child(HSeparator.new())
+
+	_hover_body_label = RichTextLabel.new()
+	_hover_body_label.bbcode_enabled = true
+	_hover_body_label.fit_content = true
+	_hover_body_label.custom_minimum_size = Vector2(220.0, 0.0)
+	_hover_body_label.scroll_active = false
+	vbox.add_child(_hover_body_label)
+
+	var tear_button := Button.new()
+	tear_button.text = "Tear away"
+	tear_button.pressed.connect(_on_tear_away_pressed)
+	vbox.add_child(tear_button)
+
+	_hover_hide_timer = Timer.new()
+	_hover_hide_timer.wait_time = 0.15
+	_hover_hide_timer.one_shot = true
+	_hover_hide_timer.timeout.connect(_hide_hover_popup)
+	add_child(_hover_hide_timer)
 
 
 ## Registers Trait.note as "text_long" (Paradotz's long-text property type)

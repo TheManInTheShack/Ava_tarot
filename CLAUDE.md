@@ -480,6 +480,41 @@ the roadmap back up cold.
   this, since the client wasn't malfunctioning, it was correctly
   reflecting what the server told it. `close_session` now retires the
   session immediately in the same message handler, not on disconnect.
+- **Card hover-info panel + tear-away windows (2026-08-22, controller
+  only)**: hovering any dealt card (slotted or loose) shows a popup with
+  its keywords/arcana/element/planet/zodiac — the same idea as Paradotz's
+  own node-hover context panel, deliberately excluding the card's image
+  (already on-screen as the card itself). A new "Tear away" button freezes
+  that popup's content into its own persistent, closable, independently
+  draggable `InfoWindow` (`Nodes/InfoWindow.gd`, new file) — any number can
+  be open on screen at once, each fully self-contained (unlike Paradotz's
+  own context panel, which is a hardcoded singleton with no close button
+  and couldn't have supported more than one without a real rework).
+  Content is a frozen snapshot at tear-off time, never re-synced.
+  **The real point of this pass**: card data moved off the static bundled
+  `Data/cards.json` (image/godot_scene/status stay there — asset/build
+  concerns) into 78 new `Card` nodes in the `tarot-deck` graph itself
+  (seeded once via `Grant/server/auth-service/seed-tarot-cards.js`, same
+  idempotent-seed-script pattern as `seed-personas.js`), joined back to
+  `cards.json`/`CardNode.deck_card_id` via each node's own `card_id`
+  property. Exactly the Trait pattern already established in this file
+  (`_parse_traits()`/`_ensure_trait_note_schema()`) applied to a second
+  node type: `_parse_card_props()` reads `Card`-typed nodes out of `_graph`
+  generically, and the hover/tear-away content builder
+  (`_build_card_hover_content()`) walks the graph's own
+  `type_schemas["Card"].properties` in order rather than any hardcoded
+  field list — so Ava can add a wholly new Card property (a real prose
+  "meaning" field, say) directly in Paradotz and it shows up here with
+  zero Paratarot code change. This is deliberately read-only for now — no
+  in-app editing UI; Paradotz is the edit surface, per explicit direction.
+  New `CardNode` signals `hover_entered`/`hover_exited` (none existed
+  before — only tap/right-click did), relayed up through `SlotVisual` →
+  `CardWorld` → `Main.gd` on the same pattern `tapped`/
+  `context_requested` already use. A short grace-period `Timer` (150ms)
+  keeps the popup open across the gap between the card and the popup's own
+  "Tear away" button — without it, the card's `mouse_exited` fires before
+  the popup's own `mouse_entered` ever catches it, hiding the popup out
+  from under the cursor before a click could land.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started
@@ -490,7 +525,8 @@ the roadmap back up cold.
   works" above (Can Draw & Select / Can Select Loose, click-to-carry drag,
   full place/free/modify resolution) — this bullet used to lump the two
   together and call both open; only `point` still is.
-- Card info/meanings panel, reading history browser
+- In-app editing of Card content (currently Paradotz-only, deliberately —
+  see 2026-08-22 above); reading history browser
 - Stats-model nodes as their own queryable type (reading metrics currently
   just live as empty properties on the Scenario node) — see the
   2026-08-17 "future direction" note below, this is about to become a
