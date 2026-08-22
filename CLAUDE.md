@@ -781,6 +781,26 @@ the roadmap back up cold.
   everywhere, only `_make_concept_node()`'s display text differs. Explicit
   motivation, not yet built: an eventual upright:reversed ratio feeding
   the stats model.
+- **Real bug, found live: Worksheet saves were silently no-ops
+  out-of-session (2026-08-22)**. `_on_worksheet_field_saved()` sent a
+  `"set_node_property"` WS message — but `ApiClient.send_ws()` silently
+  no-ops whenever the WebSocket isn't connected, which it only ever is
+  during an active reading (`connect_ws()` is only called from Start
+  Reading). The Querent picker is explicitly designed to work
+  out-of-session too (its own doc comment: "whose notes am I looking at"
+  is independent of whether a reading is active) — typing and saving
+  notes while just browsing between clients, with no reading running,
+  silently discarded them. The status label said "Saved" regardless,
+  since nothing checked whether `send_ws()` actually sent anything. Fixed
+  by switching the save to the same plain HTTP graph read-mutate-write
+  path `_ensure_worksheet_node()` already uses (`_graph` mutate +
+  `_save_graph()`), matching every other Client/Worksheet write in this
+  feature — none of which should ever have depended on session state in
+  the first place. The old server-side `"set_node_property"` WS handler
+  (`grant-api`) was removed outright, nothing calls it anymore. **Note:**
+  this only prevents it going forward — notes typed before this fix, while
+  out-of-session, were never actually written server-side and can't be
+  recovered.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started

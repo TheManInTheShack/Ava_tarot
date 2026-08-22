@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.30.0"
+const VERSION := "0.30.1"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -1204,26 +1204,46 @@ func _resolve_worksheet_fields(worksheet_id: String) -> Array:
 
 ## _worksheet_field_targets[key] is the real node id the field's query
 ## resolved to — the write target is discovered by reading, not tracked
-## separately. A plain, generic "set this property on this node" write,
-## not arbitrary Cypher (graph_query stays read-only by design) — same
-## trust level every other WS mutation already has.
+## separately. A plain, generic "set this property on this node" write —
+## not arbitrary Cypher, graph_query stays read-only by design.
+##
+## Goes through the same client-side graph read-mutate-write path
+## _ensure_worksheet_node() already uses (GraphStore-equivalent
+## GET/PUT /graphs/{name}), NOT a WS message — found live: the Querent
+## picker is explicitly meant to work out-of-session (its own doc:
+## "whose notes am I looking at" is independent of whether a reading is
+## active), but ApiClient.send_ws() silently no-ops whenever the
+## WebSocket isn't connected, which it only ever is during an active
+## session. Notes typed while just browsing clients between readings were
+## silently discarded — this fixes that by not depending on the session
+## socket being open at all.
 func _on_worksheet_field_saved(_window: Worksheet, key: String, text: String) -> void:
 	var target_id: String = _worksheet_field_targets.get(key, "")
 	if target_id == "":
 		_panel.set_status("Nothing to save it to")
 		return
 	var worksheet_id: String = "worksheet-%s" % _focused_querent_client_id()
+	var nodes: Array = _graph.get("nodes", [])
 	var field_name: String = ""
-	for n in _graph.get("nodes", []):
+	for n in nodes:
 		if str(n.get("id", "")) == worksheet_id:
 			field_name = n.get("properties", {}).get(key, {}).get("field", "")
 			break
 	if field_name == "":
 		return
-	ApiClient.send_ws({
-		"type": "set_node_property",
-		"payload": {"node_id": target_id, "field": field_name, "value": text},
-	})
+	var wrote := false
+	for n in nodes:
+		if str(n.get("id", "")) == target_id:
+			var props: Dictionary = n.get("properties", {})
+			props[field_name] = text
+			n["properties"] = props
+			wrote = true
+			break
+	if not wrote:
+		_panel.set_status("Nothing to save it to")
+		return
+	_graph["nodes"] = nodes
+	await _save_graph()
 	_panel.set_status("Saved")
 
 
