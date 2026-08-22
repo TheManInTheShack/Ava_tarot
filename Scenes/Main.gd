@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.25.0"
+const VERSION := "0.25.1"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -156,6 +156,7 @@ func _setup_controller() -> void:
 	_panel.record_pressed.connect(_on_record_pressed)
 	_panel.end_pressed.connect(_on_end_pressed)
 	_panel.payment_saved.connect(_on_payment_saved)
+	_panel.session_theme_saved.connect(_on_session_theme_saved)
 	_panel.reset_pressed.connect(_on_reset_pressed)
 	_panel.reshuffle_pressed.connect(_on_reshuffle_pressed)
 	_panel.unshuffle_pressed.connect(_on_unshuffle_pressed)
@@ -672,6 +673,14 @@ func _on_exit_pressed() -> void:
 ## Session item. Writes straight onto the Session graph node, mirroring
 ## client_joined_at/ended_at's own pattern (grant-api's WS handler) — never
 ## part of _state/_acl, so it's never broadcast to a client either.
+## Every reading has some question/feeling driving it, whatever it actually
+## is — recorded free-text on the Session node, same direct-property-write/
+## never-broadcast pattern as payment below.
+func _on_session_theme_saved(theme: String) -> void:
+	ApiClient.send_ws({"type": "theme", "payload": {"theme": theme}})
+	_panel.set_status("Theme saved")
+
+
 func _on_payment_saved(method: String, amount: float, waived: bool) -> void:
 	ApiClient.send_ws({
 		"type": "payment",

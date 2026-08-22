@@ -608,6 +608,19 @@ the roadmap back up cold.
   through those two functions before anything renders — no new hook
   needed anywhere in `Main.gd` itself. Card's own `element`/`planet` text
   properties are completely untouched by this feature.
+- **Session Theme (2026-08-22)**: a free-text field in the Session
+  rollup's in-session group, right above Payment — every reading has some
+  question/feeling driving it, whatever it actually is, worth recording
+  alongside the payment info. Exact same pattern as Payment in every
+  respect: explicit "Save Theme" button rather than live-per-keystroke
+  (a half-typed theme shouldn't get written either), resets blank at the
+  start of each new session (`set_in_session(true)`), a new `"theme"` WS
+  message writing straight onto the Session graph node server-side
+  (`grant-api`'s handler, direct-property-write, never part of
+  `state`/`acl`, never broadcast to a client) — `theme: ""` seeded
+  alongside `payment_*` at Session-node creation for the same consistency
+  reason. Grant-side-only change, no Paratarot deploy needed for the
+  server half but both are shipped together here anyway.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started

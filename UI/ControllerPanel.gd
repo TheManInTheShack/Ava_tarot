@@ -10,6 +10,7 @@ signal start_pressed()
 signal record_pressed()
 signal end_pressed()
 signal payment_saved(method: String, amount: float, waived: bool)
+signal session_theme_saved(theme: String)
 signal reset_pressed()
 signal reshuffle_pressed()
 signal unshuffle_pressed()
@@ -96,6 +97,7 @@ var _in_session_group: VBoxContainer
 var _payment_method_menu: MenuButton
 var _payment_amount_box: SpinBox
 var _payment_waived_cb: CheckBox
+var _session_theme_edit: TextEdit
 var _slots_cache: Dictionary = {}   # most recent set_slots() call, for menu labels
 var _deck_slot_menu: MenuButton
 var _deck_slot_options: Array = []  # [{"slot_id","layer"}], parallel to popup item ids
@@ -709,6 +711,24 @@ func _build_session_section() -> void:
 	end_btn.pressed.connect(func() -> void: end_pressed.emit())
 	_in_session_group.add_child(end_btn)
 
+	# Session Theme — every reading has some question/feeling driving it,
+	# whatever it actually is; recorded free-text on the Session node itself,
+	# same "explicit Save, not live-per-keystroke" reasoning as Payment below
+	# (a half-typed theme shouldn't get written either).
+	_in_session_group.add_child(HSeparator.new())
+	var theme_label := Label.new()
+	theme_label.text = "Session Theme"
+	_in_session_group.add_child(theme_label)
+	_session_theme_edit = TextEdit.new()
+	_session_theme_edit.custom_minimum_size = Vector2(0.0, 60.0)
+	_session_theme_edit.placeholder_text = "What question or feeling is this reading about?"
+	_session_theme_edit.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	_in_session_group.add_child(_session_theme_edit)
+	var save_theme_btn := Button.new()
+	save_theme_btn.text = "Save Theme"
+	save_theme_btn.pressed.connect(func() -> void: session_theme_saved.emit(_session_theme_edit.text))
+	_in_session_group.add_child(save_theme_btn)
+
 	# Payment — low-tech and manual by design (Venmo personal link + her own
 	# confirmation, not a processor integration): she picks a method, enters
 	# what came in, and hits Save; "Waived" is the explicit override for a
@@ -763,8 +783,9 @@ func set_in_session(in_session: bool) -> void:
 	_out_of_session_group.visible = not in_session
 	_in_session_group.visible = in_session
 	if in_session:
-		# Fresh Session node, fresh payment fields — last reading's entries
-		# shouldn't linger and look like they already apply to this one.
+		# Fresh Session node, fresh theme/payment fields — last reading's
+		# entries shouldn't linger and look like they already apply to this one.
+		_session_theme_edit.text = ""
 		_payment_method_menu.text = "Method"
 		_payment_method_menu.disabled = false
 		_payment_amount_box.value = 0
