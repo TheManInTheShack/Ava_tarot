@@ -23,7 +23,6 @@ extends Control
 signal card_tapped(layer: String)
 signal card_context_requested(layer: String)
 signal card_hover_entered(deck_card_id: String)
-signal card_hover_exited(deck_card_id: String)
 
 ## The crossing pair's combined footprint (Vertical + a 90°-rotated
 ## Horizontal, both centered on the same point) is roughly 280x280 — but
@@ -107,7 +106,6 @@ func _build_card_layer(layer: String) -> void:
 	)
 	node.context_requested.connect(func(_sid: String, _lyr: String) -> void: card_context_requested.emit(layer))
 	node.hover_entered.connect(func(deck_card_id: String) -> void: card_hover_entered.emit(deck_card_id))
-	node.hover_exited.connect(func(deck_card_id: String) -> void: card_hover_exited.emit(deck_card_id))
 	add_child(node)
 	_cards[layer] = node
 

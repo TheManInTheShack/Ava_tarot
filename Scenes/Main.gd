@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.23.0"
+const VERSION := "0.23.1"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -56,12 +56,8 @@ var _graph_session_node_id: String = ""  # this session's Session graph node, se
 var _deck_order: Array = []            # undealt cards, standing order, top = index 0 — see Deck section
 var _traits: Dictionary = {}           # trait_id -> name, parsed from _graph — see Traits section
 var _card_props: Dictionary = {}       # card_id -> Card node properties, parsed from _graph — see Card info section
-var _hover_popup: Panel = null         # controller mode only: the single card-hover popup
-var _hover_header_label: Label = null
-var _hover_body_label: RichTextLabel = null
-var _hover_hide_timer: Timer = null    # grace period so the mouse can reach the popup's Tear away button
-var _hover_card_id: String = ""        # controller mode only: card_id the hover popup currently shows, "" if hidden
-var _info_windows: Array = []          # controller mode only: open InfoWindow instances (tear-away card info)
+var _dock_context_window: ContextWindow = null  # controller mode only: the fixed bottom info bar
+var _info_windows: Array = []          # controller mode only: open floating ContextWindow instances (Show Detail)
 
 
 func _ready() -> void:
@@ -195,8 +191,7 @@ func _setup_controller() -> void:
 	_world.deck_draw_requested.connect(_on_deck_draw_requested)
 	_world.deck_context_requested.connect(_show_deck_context_menu)
 	_world.card_hover_entered.connect(_on_card_hover_entered)
-	_world.card_hover_exited.connect(_on_card_hover_exited)
-	_build_hover_popup()
+	_build_dock_context_window()
 
 	ApiClient.action_received.connect(_on_client_action_received)
 	ApiClient.client_joined.connect(_on_client_joined)
@@ -848,89 +843,36 @@ func _build_card_hover_content(card_id: String) -> Dictionary:
 	return {"header": header, "body": "\n".join(lines)}
 
 
+## Updates the fixed bottom bar's content in place — never moves, never
+## hides, so there's nothing to "reach." Deliberately leaves the last
+## card's info showing when the mouse moves off it (no card_hover_exited
+## handling at all) rather than reverting to a placeholder — less flicker,
+## matches "static and less intrusive."
 func _on_card_hover_entered(card_id: String) -> void:
-	_hover_hide_timer.stop()
-	_hover_card_id = card_id
 	var content: Dictionary = _build_card_hover_content(card_id)
-	_hover_header_label.text = content["header"]
-	_hover_body_label.text = content["body"]
-	_hover_popup.position = get_global_mouse_position() + Vector2(24.0, 12.0)
-	_hover_popup.visible = true
+	_dock_context_window.set_content(content["header"], content["body"])
 
 
-func _on_card_hover_exited(card_id: String) -> void:
-	if card_id == _hover_card_id:
-		_hover_hide_timer.start()
-
-
-## Called both when the mouse leaves the hover popup itself and (after a
-## short grace period — see _hover_hide_timer) when it leaves the card. The
-## grace period is what lets the mouse actually reach the "Tear away"
-## button: without it, the straight-line gap between the card and the
-## popup's own position would fire the card's mouse_exited before the
-## popup's mouse_entered ever catches it, hiding the popup out from under
-## the cursor before a click could land.
-func _hide_hover_popup() -> void:
-	_hover_popup.visible = false
-	_hover_card_id = ""
-
-
-func _on_tear_away_pressed() -> void:
-	if _hover_card_id == "":
-		return
-	var content: Dictionary = _build_card_hover_content(_hover_card_id)
-	var win := InfoWindow.new()
+## Right-click "Show Detail" (see _show_card_context_menu/
+## _show_loose_context_menu) — a deliberate click, not a hover-then-reach
+## gesture, per direct feedback that the hover popup's own "Tear away"
+## button was unreachable in practice. Content is frozen at creation time.
+func _spawn_detail_window(card_id: String) -> void:
+	var content: Dictionary = _build_card_hover_content(card_id)
+	var win := ContextWindow.new()
 	add_child(win)
-	win.setup(content["header"], content["body"])
-	win.position = _hover_popup.position + Vector2(24.0 * _info_windows.size(), 24.0 * _info_windows.size())
-	win.closed.connect(func(w: InfoWindow) -> void: _info_windows.erase(w))
+	var pos := Vector2(PANEL_W + 60.0, 100.0) + Vector2(24.0, 24.0) * _info_windows.size()
+	win.configure_floating(pos)
+	win.set_content(content["header"], content["body"])
+	win.closed.connect(func(w: ContextWindow) -> void: _info_windows.erase(w))
 	_info_windows.append(win)
-	_hide_hover_popup()
 
 
-func _build_hover_popup() -> void:
-	_hover_popup = Panel.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.12, 0.12, 0.12)
-	sb.border_color = Color(0.32, 0.32, 0.32)
-	sb.set_border_width_all(1)
-	sb.set_corner_radius_all(5)
-	sb.set_content_margin_all(8)
-	_hover_popup.add_theme_stylebox_override("panel", sb)
-	_hover_popup.custom_minimum_size = Vector2(220.0, 0.0)
-	_hover_popup.mouse_filter = Control.MOUSE_FILTER_STOP
-	_hover_popup.z_index = 25
-	_hover_popup.visible = false
-	_hover_popup.mouse_entered.connect(func() -> void: _hover_hide_timer.stop())
-	_hover_popup.mouse_exited.connect(func() -> void: _hover_hide_timer.start())
-	add_child(_hover_popup)
-
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 4)
-	_hover_popup.add_child(vbox)
-
-	_hover_header_label = Label.new()
-	_hover_header_label.add_theme_font_size_override("font_size", 15)
-	vbox.add_child(_hover_header_label)
-	vbox.add_child(HSeparator.new())
-
-	_hover_body_label = RichTextLabel.new()
-	_hover_body_label.bbcode_enabled = true
-	_hover_body_label.fit_content = true
-	_hover_body_label.custom_minimum_size = Vector2(220.0, 0.0)
-	_hover_body_label.scroll_active = false
-	vbox.add_child(_hover_body_label)
-
-	var tear_button := Button.new()
-	tear_button.text = "Tear away"
-	tear_button.pressed.connect(_on_tear_away_pressed)
-	vbox.add_child(tear_button)
-
-	_hover_hide_timer = Timer.new()
-	_hover_hide_timer.wait_time = 0.15
-	_hover_hide_timer.one_shot = true
-	_hover_hide_timer.timeout.connect(_hide_hover_popup)
-	add_child(_hover_hide_timer)
+func _build_dock_context_window() -> void:
+	_dock_context_window = ContextWindow.new()
+	add_child(_dock_context_window)
+	_dock_context_window.configure_docked(PANEL_W, 140.0)
+	_dock_context_window.set_content("", "Hover a card, or right-click a card for a pinned copy.")
 
 
 ## Registers Trait.note as "text_long" (Paradotz's long-text property type)
@@ -1807,6 +1749,10 @@ func _show_card_context_menu(slot_id: String, layer: String) -> void:
 	vbox.add_child(label)
 	vbox.add_child(HSeparator.new())
 
+	var slot_layer_card_id: String = _state.get("cards", {}).get(slot_id, {}).get(layer, {}).get("deck_card_id", "")
+	if slot_layer_card_id != "":
+		_add_ctx_button(vbox, "Show Detail", func() -> void: _spawn_detail_window(slot_layer_card_id))
+
 	var is_visible: bool = _acl.get(slot_id, {}).get(layer, {}).get("visible", false)
 	_add_ctx_button(vbox, "Hide" if is_visible else "Show", func() -> void: _on_ctx_show_hide(slot_id, layer))
 	_add_ctx_button(vbox, "Turn", func() -> void: _flip_layer(slot_id, layer))
@@ -1835,6 +1781,7 @@ func _show_loose_context_menu(card_id: String) -> void:
 	vbox.add_child(label)
 	vbox.add_child(HSeparator.new())
 
+	_add_ctx_button(vbox, "Show Detail", func() -> void: _spawn_detail_window(card_id))
 	_add_ctx_button(vbox, "Turn", func() -> void: _flip_loose(card_id))
 	_add_ctx_button(vbox, "Invert", func() -> void: _invert_loose(card_id))
 	# Grabs the loose end of a would-be MODIFIES edge and lets it follow the

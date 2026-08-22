@@ -33,7 +33,6 @@ signal loose_edge_resolved(source_id: String, target_card_id: String)
 signal deck_draw_requested()
 signal deck_context_requested()  # right-click on the deck marker
 signal card_hover_entered(deck_card_id: String)
-signal card_hover_exited(deck_card_id: String)
 
 const LAYERS := ["vertical", "horizontal"]
 const DRAG_THRESHOLD := 6.0
@@ -136,7 +135,6 @@ func set_slots(slots: Dictionary) -> void:
 			visual.card_tapped.connect(func(layer: String) -> void: _on_card_tapped(slot_id, layer))
 			visual.card_context_requested.connect(func(layer: String) -> void: _on_card_context_requested(slot_id, layer))
 			visual.card_hover_entered.connect(func(dcid: String) -> void: card_hover_entered.emit(dcid))
-			visual.card_hover_exited.connect(func(dcid: String) -> void: card_hover_exited.emit(dcid))
 			_world.add_child(visual)
 			_slot_visuals[slot_id] = visual
 		visual.position = pos
@@ -706,7 +704,6 @@ func set_loose(loose: Dictionary, interactive: bool = true) -> void:
 			node.context_requested.connect(_on_card_context_requested)
 			node.drag_pressed.connect(_on_loose_drag_pressed)
 			node.hover_entered.connect(func(dcid: String) -> void: card_hover_entered.emit(dcid))
-			node.hover_exited.connect(func(dcid: String) -> void: card_hover_exited.emit(dcid))
 			_world.add_child(node)
 			_loose_nodes[card_id] = node
 		node.deck_card_id = card_id

@@ -480,18 +480,33 @@ the roadmap back up cold.
   this, since the client wasn't malfunctioning, it was correctly
   reflecting what the server told it. `close_session` now retires the
   session immediately in the same message handler, not on disconnect.
-- **Card hover-info panel + tear-away windows (2026-08-22, controller
-  only)**: hovering any dealt card (slotted or loose) shows a popup with
-  its keywords/arcana/element/planet/zodiac — the same idea as Paradotz's
-  own node-hover context panel, deliberately excluding the card's image
-  (already on-screen as the card itself). A new "Tear away" button freezes
-  that popup's content into its own persistent, closable, independently
-  draggable `InfoWindow` (`Nodes/InfoWindow.gd`, new file) — any number can
-  be open on screen at once, each fully self-contained (unlike Paradotz's
-  own context panel, which is a hardcoded singleton with no close button
-  and couldn't have supported more than one without a real rework).
-  Content is a frozen snapshot at tear-off time, never re-synced.
-  **The real point of this pass**: read card data out of the `tarot-deck`
+- **Card info: docked bottom bar + right-click "Show Detail" (2026-08-22,
+  controller only)**: hovering any dealt card (slotted or loose) updates a
+  fixed info bar docked along the bottom of the table — content changes
+  live, position never moves. **First shipped as a mouse-following popup
+  with a "Tear away" button inside it; reworked same day** on direct
+  feedback that reaching the button meant moving off the card and into the
+  popup — precisely the problem that made Paradotz's own node-hover panel
+  static in the first place, so this mirrors that same fix rather than
+  re-fighting it. Tear-away moved to right-click → **"Show Detail"** on the
+  card's existing context menu (`_show_card_context_menu`/
+  `_show_loose_context_menu`) instead — a deliberate click, not a
+  hover-then-reach gesture — spawning an independent, closable, draggable
+  floating copy. Both the docked bar and every floating copy are **the
+  same underlying component**, `Nodes/ContextWindow.gd` (new file,
+  superseding the same day's shorter-lived `InfoWindow.gd`): one class,
+  `configure_docked()` vs. `configure_floating()`, "context windows that
+  can exist simultaneously" rather than two separate implementations.
+  Written with zero tarot-specific dependencies (just `set_content(header,
+  body)`) — the intended canonical version to copy into Paradotz (whose
+  own equivalent panel is genuinely bespoke, hardcoded into `Editor.gd` as
+  module-level singleton state, no class/scene) and Plotz later, same
+  "ported technique, not shared code" convention already used between
+  these three separate Godot projects — not done this pass, real future
+  work. Card content excludes the image (already on-screen as the card
+  itself), and never touches the card's image regardless of what Ava
+  calls the property (skips any `media_*`-typed schema property, not a
+  hardcoded field list). **The real point of this pass**: read card data out of the `tarot-deck`
   graph's own `Card` nodes instead of the static bundled `Data/cards.json`
   (which stays authoritative only for `image`/`godot_scene`/`status` —
   asset/build concerns). A one-off seed script was written
@@ -523,14 +538,15 @@ the roadmap back up cold.
   so it appears as its own line under the card's name — harmless, just
   slightly redundant; easy for Ava to flip off in Paradotz if it bothers
   her.)
-  New `CardNode` signals `hover_entered`/`hover_exited` (none existed
-  before — only tap/right-click did), relayed up through `SlotVisual` →
-  `CardWorld` → `Main.gd` on the same pattern `tapped`/
-  `context_requested` already use. A short grace-period `Timer` (150ms)
-  keeps the popup open across the gap between the card and the popup's own
-  "Tear away" button — without it, the card's `mouse_exited` fires before
-  the popup's own `mouse_entered` ever catches it, hiding the popup out
-  from under the cursor before a click could land.
+  New `CardNode` signal `hover_entered` (none existed before — only
+  tap/right-click did), relayed up through `SlotVisual` → `CardWorld` →
+  `Main.gd` on the same pattern `tapped`/`context_requested` already use.
+  No `hover_exited` handling anywhere — the dock bar deliberately keeps
+  showing the last-hovered card's info rather than reverting to a
+  placeholder the moment the mouse moves off it, which is what "static and
+  less intrusive" actually meant in practice; this also made the original
+  version's grace-period hide-timer hack unnecessary, not just its
+  "Tear away" button.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started

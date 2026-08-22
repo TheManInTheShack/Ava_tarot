@@ -13,7 +13,6 @@ signal tapped(slot_id: String, layer: String)
 signal context_requested(slot_id: String, layer: String)
 signal drag_pressed(card_id: String)  # loose cards only — see _gui_input()
 signal hover_entered(deck_card_id: String)  # only for a layer that genuinely holds a card — see _on_mouse_entered()
-signal hover_exited(deck_card_id: String)
 
 const CARD_SIZE := Vector2(160, 280)
 
@@ -79,7 +78,6 @@ func _ready() -> void:
 	if layer == "loose":
 		_build_loose_label()
 	mouse_entered.connect(_on_mouse_entered)
-	mouse_exited.connect(_on_mouse_exited)
 
 
 ## has_data is the real "genuinely holds a card" signal for slotted layers
@@ -90,10 +88,6 @@ func _ready() -> void:
 func _on_mouse_entered() -> void:
 	if has_data or (layer == "loose" and deck_card_id != ""):
 		hover_entered.emit(deck_card_id)
-
-
-func _on_mouse_exited() -> void:
-	hover_exited.emit(deck_card_id)
 
 
 ## back_texture used to load lazily only here, from the first CardNode's own
