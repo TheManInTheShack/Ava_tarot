@@ -839,42 +839,50 @@ func _link_anchor_point(node: CardNode, is_target: bool) -> Vector2:
 	return bottom_center
 
 
-# ── Planet/Element concept nodes ────────────────────────────────────────────
+# ── Planet/Element/Orientation concept ("status") nodes ─────────────────────
 # Controller-only, driven entirely from _last_cards_state/_last_loose — no
 # ACL modeled, same as loose cards themselves today. A concept is "active"
-# whenever any currently in-play card's element/planet (looked up in
-# _card_lookup, i.e. Main._deck) matches it; created/pruned to match exactly
-# what's active right now, same create/prune shape as set_loose() itself.
+# whenever any currently in-play card matches it; created/pruned to match
+# exactly what's active right now, same create/prune shape as set_loose()
+# itself.
+#
+# Orientation (upright/reversed) is deliberately included here rather than
+# treated as a Card property to read/write through a context window: it
+# isn't something anyone would write back to the card (it's already decided
+# at deal time, not editorial content), and — the actual point of adding
+# it — it's one of the only things about an in-play card genuinely
+# invisible before it's turned face-up (a face-down reversed card's rotation
+# is real but undetectable against a symmetric card-back design). The
+# controller should be able to see it anyway, same as element/planet
+# already are regardless of face_up state. Tracked for a future upright:
+# reversed ratio feeding the stats model — not built yet, just the reason
+# this exists now rather than later.
 
 func _refresh_concept_nodes() -> void:
 	if is_client:
 		return
-	var in_play_ids: Array = []
+	var in_play: Array = []  # [{"card_id","orientation"}, ...]
 	for slot_info in _last_cards_state.values():
 		for layer in LAYERS:
 			var info = slot_info.get(layer)
 			if info != null:
 				var dcid: String = str(info.get("deck_card_id", ""))
 				if dcid != "":
-					in_play_ids.append(dcid)
+					in_play.append({"card_id": dcid, "orientation": str(info.get("orientation", "upright"))})
 	for card_id in _last_loose.keys():
-		in_play_ids.append(card_id)
+		in_play.append({"card_id": card_id, "orientation": str(_last_loose[card_id].get("orientation", "upright"))})
 
 	var active: Dictionary = {}  # concept key -> [card_id, ...]
-	for card_id in in_play_ids:
+	for entry in in_play:
+		var card_id: String = entry["card_id"]
 		var rec: Dictionary = _card_lookup.get(card_id, {})
 		var element: String = str(rec.get("element", ""))
 		var planet: String = str(rec.get("planet", ""))
 		if element != "" and element != "null":
-			var ek := "element:%s" % element
-			var earr: Array = active.get(ek, [])
-			earr.append(card_id)
-			active[ek] = earr
+			_mark_concept_active(active, "element:%s" % element, card_id)
 		if planet != "" and planet != "null":
-			var pk := "planet:%s" % planet
-			var parr: Array = active.get(pk, [])
-			parr.append(card_id)
-			active[pk] = parr
+			_mark_concept_active(active, "planet:%s" % planet, card_id)
+		_mark_concept_active(active, "orientation:%s" % entry["orientation"], card_id)
 
 	for key in _concept_nodes.keys().duplicate():
 		if not active.has(key):
@@ -889,10 +897,22 @@ func _refresh_concept_nodes() -> void:
 	queue_redraw()
 
 
+func _mark_concept_active(active: Dictionary, key: String, card_id: String) -> void:
+	var arr: Array = active.get(key, [])
+	arr.append(card_id)
+	active[key] = arr
+
+
 func _make_concept_node(key: String, first_card_id: String) -> ConceptNode:
 	var colon_idx: int = key.find(":")
 	var kind: String = key.substr(0, colon_idx)
-	var display_name: String = key.substr(colon_idx + 1)
+	var raw_value: String = key.substr(colon_idx + 1)
+	# "Inverted", not "Reversed" — matches this app's own existing
+	# user-facing abbreviation for the same orientation value ("(inv)" on
+	# card sub-labels elsewhere), even though the stored property is
+	# "reversed". Everywhere else keys off the real stored value, only the
+	# display label differs.
+	var display_name: String = "Inverted" if key == "orientation:reversed" else raw_value.capitalize()
 	var node := ConceptNode.new()
 	node.key = key
 	node.drag_pressed.connect(_on_concept_drag_pressed)

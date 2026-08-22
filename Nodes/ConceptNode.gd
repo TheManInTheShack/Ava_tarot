@@ -42,10 +42,18 @@ func _ready() -> void:
 
 
 ## kind: "planet" or "element" — purely a color accent (cooler tones for
-## Planet, earthier tones for Element), not load-bearing; easy to retune.
+## Planet, earthier tones for Element, warm gold for Orientation/status),
+## not load-bearing; easy to retune.
 func setup(display_name: String, kind: String) -> void:
 	_label.text = display_name
-	var accent: Color = Color(0.45, 0.6, 0.95) if kind == "planet" else Color(0.55, 0.75, 0.4)
+	var accent: Color
+	match kind:
+		"planet":
+			accent = Color(0.45, 0.6, 0.95)
+		"orientation":
+			accent = Color(0.85, 0.7, 0.35)
+		_:
+			accent = Color(0.55, 0.75, 0.4)  # element
 	_style.bg_color = Color(accent.r, accent.g, accent.b, 0.22)
 	_style.border_color = accent
 	queue_redraw()

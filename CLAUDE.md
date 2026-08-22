@@ -761,6 +761,26 @@ the roadmap back up cold.
   through this one function); `CardWorld` overrides it to do exactly what
   every drag handler already does after moving something —
   `_rebuild_modify_links()`/`_rebuild_concept_links()` + `queue_redraw()`.
+- **Orientation status nodes, same day**: a third concept-node kind
+  alongside Planet/Element — `orientation:upright`/`orientation:reversed`,
+  same "temporary, contents-based node" mechanism, no new infrastructure
+  needed beyond feeding orientation through `_refresh_concept_nodes()`'s
+  existing `in_play` scan (previously only gathered card ids; now carries
+  each one's own `orientation` alongside, read straight off the same
+  per-instance state dicts `SlotVisual.set_layer()`/`set_loose()` already
+  use). Deliberately not a Card property surfaced through a context
+  window: orientation isn't editorial content anyone writes back, and —
+  the actual reason this exists — it's one of the only things about an
+  in-play card genuinely invisible before it's turned face-up (a face-down
+  reversed card's rotation is real but undetectable against a symmetric
+  card-back design); the controller should be able to see it anyway, same
+  as element/planet already can regardless of face_up state. Display label
+  says "Inverted," not "Reversed" — matches this app's own existing
+  user-facing abbreviation for the same value (`"(inv)"` on card
+  sub-labels elsewhere) even though the stored property stays "reversed"
+  everywhere, only `_make_concept_node()`'s display text differs. Explicit
+  motivation, not yet built: an eventual upright:reversed ratio feeding
+  the stats model.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started
