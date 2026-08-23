@@ -40,6 +40,7 @@ signal trait_toggled(trait_id: String, has_trait: bool)  # add (true) / remove (
 signal client_focus_changed()
 signal querent_focus_changed()
 signal querent_worksheet_toggled()
+signal overlay_kind_changed(kind: String, is_visible: bool)  # "planet"/"element"/"orientation" — controller-only, never shown to a client
 
 ## Low-tech and manual by design (Venmo personal link + her own confirmation
 ## at session time, not a processor integration) — see Session section.
@@ -53,6 +54,7 @@ const PALETTE := [
 	Color(0.75, 0.45, 0.95),  # Violet — Traits
 	Color(0.90, 0.35, 0.55),  # Magenta — Querent (deliberately distinct from Traits' violet even
 	                          # though the two "overlap" conceptually — they stay separate rollups)
+	Color(0.40, 0.80, 0.70),  # Teal   — Overlay
 ]
 
 ## (0,0) landed a new slot right behind the panel, in the one corner of the
@@ -126,6 +128,9 @@ var _querent_picker_row: HBoxContainer  # client picker, visible only out-of-ses
 var _querent_client_menu: MenuButton
 var _querent_clients: Array = []
 var _querent_selected_client_index: int = -1
+var _overlay_planet_cb: CheckBox
+var _overlay_element_cb: CheckBox
+var _overlay_orientation_cb: CheckBox
 
 
 func _ready() -> void:
@@ -149,6 +154,7 @@ func _ready() -> void:
 	_build_layout_section()
 	_build_traits_section()
 	_build_querent_section()
+	_build_overlay_section()
 
 
 func set_version(v: String) -> void:
@@ -1275,6 +1281,43 @@ func get_querent_selected_client() -> Dictionary:
 	if _querent_selected_client_index < 0 or _querent_selected_client_index >= _querent_clients.size():
 		return {}
 	return _querent_clients[_querent_selected_client_index]
+
+
+# ── Overlay ──────────────────────────────────────────────────────────────────
+# Same idea as Client Access's own visibility checkboxes, but for the
+# controller's own screen, not what a client sees — the Planet/Element/
+# Orientation concept nodes are controller-only regardless (no ACL modeled
+# for them, same as loose cards), so this just toggles whether each *kind*
+# ever appears at all, nothing client-facing at this point.
+
+func _build_overlay_section() -> void:
+	var form := VBoxContainer.new()
+
+	var label := Label.new()
+	label.text = "Show on the table (controller only — never sent to a client)"
+	label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	form.add_child(label)
+
+	_overlay_planet_cb = CheckBox.new()
+	_overlay_planet_cb.text = "Planet"
+	_overlay_planet_cb.button_pressed = true
+	_overlay_planet_cb.toggled.connect(func(v: bool) -> void: overlay_kind_changed.emit("planet", v))
+	form.add_child(_overlay_planet_cb)
+
+	_overlay_element_cb = CheckBox.new()
+	_overlay_element_cb.text = "Element"
+	_overlay_element_cb.button_pressed = true
+	_overlay_element_cb.toggled.connect(func(v: bool) -> void: overlay_kind_changed.emit("element", v))
+	form.add_child(_overlay_element_cb)
+
+	_overlay_orientation_cb = CheckBox.new()
+	_overlay_orientation_cb.text = "Orientation (Upright/Inverted)"
+	_overlay_orientation_cb.button_pressed = true
+	_overlay_orientation_cb.toggled.connect(func(v: bool) -> void: overlay_kind_changed.emit("orientation", v))
+	form.add_child(_overlay_orientation_cb)
+
+	_make_rollup("Overlay", _rollup_color(6), form)
 
 
 const LAYER_LABELS := {"vertical": "Vertical", "horizontal": "Horizontal"}

@@ -51,6 +51,7 @@ var _concept_positions: Dictionary = {}    # same key -> Vector2, remembered for
 var _concept_links: Array = []             # [[Vector2 from, Vector2 to], ...], world-local, for _draw()
 var _last_cards_state: Dictionary = {}     # most recent apply_state() cards arg
 var _last_concept_active: Dictionary = {}  # concept key -> [card_id, ...], most recent _refresh_concept_nodes() result
+var _overlay_kind_visible: Dictionary = {"planet": true, "element": true, "orientation": true}  # ControllerPanel's Overlay rollup
 
 # Layout-editing (mod mode) slot markers — see set_layout_mod_mode().
 var _layout_mod_mode: bool = false
@@ -864,6 +865,16 @@ func _link_anchor_point(node: CardNode, is_target: bool) -> Vector2:
 # reversed ratio feeding the stats model — not built yet, just the reason
 # this exists now rather than later.
 
+## ControllerPanel's Overlay rollup — one checkbox per concept kind, same
+## idea as Client Access's own visibility checkboxes but for the
+## controller's own screen (concept nodes are already controller-only
+## regardless, no ACL modeled for them, same as loose cards). Takes effect
+## immediately rather than waiting for the next state change.
+func set_overlay_kind_visible(kind: String, is_visible: bool) -> void:
+	_overlay_kind_visible[kind] = is_visible
+	_refresh_concept_nodes()
+
+
 func _refresh_concept_nodes() -> void:
 	if is_client:
 		return
@@ -890,11 +901,12 @@ func _refresh_concept_nodes() -> void:
 		# concept node instead of no node at all.
 		var element_val = rec.get("element")
 		var planet_val = rec.get("planet")
-		if element_val != null and str(element_val) != "":
+		if _overlay_kind_visible.get("element", true) and element_val != null and str(element_val) != "":
 			_mark_concept_active(active, "element:%s" % str(element_val), card_id)
-		if planet_val != null and str(planet_val) != "":
+		if _overlay_kind_visible.get("planet", true) and planet_val != null and str(planet_val) != "":
 			_mark_concept_active(active, "planet:%s" % str(planet_val), card_id)
-		_mark_concept_active(active, "orientation:%s" % entry["orientation"], card_id)
+		if _overlay_kind_visible.get("orientation", true):
+			_mark_concept_active(active, "orientation:%s" % entry["orientation"], card_id)
 
 	for key in _concept_nodes.keys().duplicate():
 		if not active.has(key):

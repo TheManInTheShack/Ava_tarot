@@ -841,6 +841,16 @@ the roadmap back up cold.
   the two older drag paths that predated the feature. Fixed by adding
   `_rebuild_concept_links(_last_concept_active)` alongside the existing
   `_rebuild_modify_links()` call in both.
+- **New "Overlay" rollup (2026-08-22)**: one checkbox per concept-node kind
+  (Planet/Element/Orientation), same idea as Client Access's own
+  visibility checkboxes but for the controller's own screen only — no ACL
+  modeled, nothing sent to a client (concept nodes were already
+  controller-only regardless). `CardWorld.set_overlay_kind_visible(kind,
+  is_visible)` stores the flag and immediately re-runs
+  `_refresh_concept_nodes()`, which now gates each of the three
+  `_mark_concept_active()` calls on it — toggling a kind off just means
+  `active` never includes those keys, so the existing create/prune loop
+  removes them the same way it already would if nothing matched at all.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started
