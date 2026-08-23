@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.31.2"
+const VERSION := "0.31.3"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -734,7 +734,8 @@ func _on_start_pressed() -> void:
 	}
 
 	var session_info: Dictionary = await ApiClient.get_current_session()
-	if session_info.is_empty():
+	var is_new_session: bool = session_info.is_empty()
+	if is_new_session:
 		session_info = await ApiClient.start_session(client_user_id, client_username, client_display)
 	var session_id: String = session_info.get("session_id", "")
 	if session_id == "":
@@ -745,6 +746,12 @@ func _on_start_pressed() -> void:
 	# server-side — resync so this controller's own Layout/Slot edits don't
 	# PUT a stale copy back and clobber them.
 	await _resync_graph()
+	if is_new_session:
+		# A fresh reading never deals from a suspiciously-orderly deck — the
+		# app's own startup/reset order is sorted (a deliberate, easy-to-verify
+		# baseline for testing), but a real reading must not risk the Major
+		# Arcana coming out in their canonical 0-21 order.
+		_deck_order.shuffle()
 
 	ApiClient.connect_ws(session_id)
 	_panel.set_in_session(true)

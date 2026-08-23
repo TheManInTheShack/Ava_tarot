@@ -167,6 +167,13 @@ the roadmap back up cold.
   state-independent — works in or out of a session, and out-of-session
   dealing produces zero graph writes for free since Record Scenario/End
   Reading are already gated to in-session.
+- **Start Reading auto-shuffles the deck (2026-08-22).** `_on_start_pressed()`
+  shuffles `_deck_order` once a brand-new session is actually created
+  (guarded on `is_new_session` — reconnecting to an already-in-progress
+  session does not reshuffle out from under it). The app's own startup/
+  Reset/Unshuffle order stays canonical-sorted on purpose (an easy,
+  reproducible baseline for testing), but a real reading must never risk
+  dealing the Major Arcana out in their literal 0–21 order.
 - **Modifier mechanic, right-click path only** (Step 5 piece 1 of 2, done
   2026-08-13): a loose card's context menu gets Turn/Invert/**Modify
   Card**/Clear Modifier — picks any other on-table card (slotted or loose)
