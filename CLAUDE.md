@@ -829,6 +829,18 @@ the roadmap back up cold.
   `_spawn_detail_window()` can check for an already-open one and bring it
   to front instead of stacking a duplicate — found live, could open the
   same card's detail window any number of times.
+- **Real bug, found live: concept-node links snapped instead of following
+  a card mid-drag (2026-08-22)**. `_input_loose_drag()`/`_input_slot_drag()`
+  already recompute `_modify_links` every motion frame (a fix from
+  earlier — see their own doc comments) but were never updated to also
+  recompute `_concept_links` when the Planet/Element/Orientation feature
+  was added afterward, so a concept-linked card's line sat frozen at its
+  pre-drag position until the drag ended and state round-tripped back,
+  then visibly snapped to catch up — concept-node *dragging* itself
+  already did this correctly (`_input_concept_drag`), it was specifically
+  the two older drag paths that predated the feature. Fixed by adding
+  `_rebuild_concept_links(_last_concept_active)` alongside the existing
+  `_rebuild_modify_links()` call in both.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started

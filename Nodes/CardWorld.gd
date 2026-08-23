@@ -293,10 +293,14 @@ func _input_slot_drag(event: InputEvent) -> void:
 				if visual != null:
 					visual.position = marker.position
 				slot_dragging.emit(_drag_slot_id, marker.position.x, marker.position.y)
-				# Keep any modify-link line honest while its slotted endpoint moves —
-				# same fix as the loose-drag path below, same underlying cause
-				# (_rebuild_modify_links only ran from set_loose(), never mid-drag).
+				# Keep any modify-link/concept-link line honest while its slotted
+				# endpoint moves — same fix as the loose-drag path below, same
+				# underlying cause (both link arrays only ever got rebuilt from
+				# set_loose()/apply_state(), never mid-drag, so a linked line sat
+				# still until the drag ended and the state round-tripped back,
+				# then visibly snapped to catch up).
 				_rebuild_modify_links(_last_loose)
+				_rebuild_concept_links(_last_concept_active)
 				queue_redraw()
 			get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
@@ -371,11 +375,13 @@ func _input_loose_drag(event: InputEvent) -> void:
 			if node != null:
 				node.position = cur + _loose_drag_grab_offset
 				_update_loose_drag_highlight(node)
-				# Same fix as the slot-drag path above: a modify-link line was only
-				# ever recomputed from set_loose(), so it used to sit still until the
-				# drag finished and the state round-tripped back, then jump to catch
-				# up. Recomputed from the live node position every motion frame now.
+				# Same fix as the slot-drag path above: a modify-link/concept-link
+				# line was only ever recomputed from set_loose()/apply_state(), so
+				# it used to sit still until the drag finished and the state
+				# round-tripped back, then jump to catch up. Recomputed from the
+				# live node position every motion frame now.
 				_rebuild_modify_links(_last_loose)
+				_rebuild_concept_links(_last_concept_active)
 				queue_redraw()
 			get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
