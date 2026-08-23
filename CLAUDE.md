@@ -812,6 +812,23 @@ the roadmap back up cold.
   concept node literally labeled `<null>` instead of no node at all. Fixed
   by checking the real value against `null` directly, before stringifying,
   rather than string-matching a stand-in for it.
+- **Context windows close when the board clears; at most one "Show
+  Detail" per card (2026-08-22)**. New `_close_all_context_windows()`,
+  called from both places a board actually clears — `_reset_table()`
+  (Reset/layout switch) and `_on_end_pressed()`'s own inline reset (End
+  Reading doesn't call `_reset_table()`, it duplicates the logic inline
+  with session-teardown interleaved, so needed its own call site) — closes
+  the hover window and every open "Show Detail" copy the same way the user
+  closing one themselves would (`closed.emit()` before `queue_free()`, so
+  every already-connected cleanup — `_ctx_btn` style,
+  `_info_windows`' per-card entry — runs exactly as normal, not a special
+  case). Deliberately does **not** touch the Querent Worksheet — that's
+  about the focused *client*, not the board's cards, clearing the table
+  doesn't make it stale the same way. Separately: `_info_windows` changed
+  from an `Array` to a `Dictionary` (`card_id -> ContextWindow`) so
+  `_spawn_detail_window()` can check for an already-open one and bring it
+  to front instead of stacking a duplicate — found live, could open the
+  same card's detail window any number of times.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started

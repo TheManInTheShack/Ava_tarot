@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.30.2"
+const VERSION := "0.30.3"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -59,7 +59,7 @@ var _card_props: Dictionary = {}       # card_id -> Card node properties, parsed
 var _hover_context_window: ContextWindow = null  # controller mode only: the window hover updates — just a regular ContextWindow, defaulted near the bottom, not docked/anchored
 var _ctx_on: bool = true  # "Ctx" button, now in the canvas's own top control strip — see _on_ctx_toggled()
 var _ctx_btn: Button = null
-var _info_windows: Array = []          # controller mode only: open floating ContextWindow instances (Show Detail)
+var _info_windows: Dictionary = {}     # card_id -> ContextWindow (Show Detail) — controller mode only, at most one per card
 var _querent_worksheet: Worksheet = null  # controller mode only: open Querent worksheet, if any — see _on_querent_worksheet_toggled()
 var _worksheet_field_targets: Dictionary = {}  # key -> resolved node id, from the most recent _resolve_worksheet_fields() call
 
@@ -385,6 +385,25 @@ func _reset_table() -> void:
 	ApiClient.send_ws({"type": "state", "payload": _state})
 	ApiClient.send_ws({"type": "acl", "payload": _acl})
 	_refresh_deck_slot_availability()
+	_close_all_context_windows()
+
+
+## Any open ContextWindow (the hover one, or a torn-away "Show Detail"
+## copy) is either showing a card that's about to no longer be on the
+## table, or — for the hover window — content that's stale the moment the
+## board clears anyway. Closed the same way a user closing one themselves
+## would be (emits `closed` before freeing), so every already-connected
+## cleanup — _hover_context_window/_ctx_btn style, _info_windows'
+## per-card entry — runs exactly as it normally would, not a special case.
+func _close_all_context_windows() -> void:
+	if is_instance_valid(_hover_context_window):
+		var hw: FloatingWindow = _hover_context_window
+		hw.closed.emit(hw)
+		hw.queue_free()
+	for w in _info_windows.values():
+		if is_instance_valid(w):
+			w.closed.emit(w)
+			w.queue_free()
 
 
 func _save_graph() -> void:
@@ -786,6 +805,7 @@ func _on_end_pressed() -> void:
 	_world.set_loose(_state["loose"])
 	_refresh_traits_panel()  # focus reverts to whatever the picker has selected
 	_refresh_querent_panel()
+	_close_all_context_windows()
 
 
 ## Mid-session save — "record it and start over in the same session":
@@ -908,15 +928,23 @@ func _on_card_hover_entered(card_id: String) -> void:
 ## button was unreachable in practice. Content is frozen at creation time.
 ## Independent of Ctx/the hover window — a pinned copy is never affected
 ## by toggling or closing the live one.
+## At most one per card — re-requesting one that's already open just
+## brings it to front (same "move to top of _world's own children" idea
+## every other draggable object in this repo already uses on press)
+## instead of stacking a duplicate on top of it.
 func _spawn_detail_window(card_id: String) -> void:
+	var existing: ContextWindow = _info_windows.get(card_id)
+	if is_instance_valid(existing):
+		existing.get_parent().move_child(existing, existing.get_parent().get_child_count() - 1)
+		return
 	var content: Dictionary = _build_card_hover_content(card_id)
 	var win := ContextWindow.new()
 	add_child(win)
 	var pos := Vector2(PANEL_W + 60.0, 100.0) + Vector2(24.0, 24.0) * _info_windows.size()
 	win.configure(pos)
 	win.set_content(content["header"], content["body"])
-	win.closed.connect(func(w: FloatingWindow) -> void: _info_windows.erase(w))
-	_info_windows.append(win)
+	win.closed.connect(func(_w: FloatingWindow) -> void: _info_windows.erase(card_id))
+	_info_windows[card_id] = win
 
 
 ## Builds the hover window once, at startup — default position/size only
