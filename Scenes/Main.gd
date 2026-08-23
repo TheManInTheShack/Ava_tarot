@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.31.0"
+const VERSION := "0.31.1"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -812,6 +812,10 @@ func _on_end_pressed() -> void:
 ## Mid-session save — "record it and start over in the same session":
 ## writes a Scenario but leaves the Session (and its ended_at) untouched, so
 ## the table clears while the reading stays open. See Reading-Model.md.
+## Writes a checkpoint only — at most a new Scenario node, nothing else on
+## the table changes. (Originally cleared the table too, matching an old
+## design note from this repo's early history; changed per explicit
+## direction — Record Scenario shouldn't touch anything but recording it.)
 func _on_record_pressed() -> void:
 	var cards: Dictionary = _state.get("cards", {})
 	var loose: Dictionary = _state.get("loose", {})
@@ -821,12 +825,6 @@ func _on_record_pressed() -> void:
 	_send_checkpoint(false)
 	await get_tree().create_timer(0.5).timeout
 	await _resync_graph()
-	_state = {"cards": {}, "loose": {}}
-	_reset_acl_to_default()
-	ApiClient.send_ws({"type": "state", "payload": _state})
-	ApiClient.send_ws({"type": "acl", "payload": _acl})
-	_world.apply_state(_state["cards"])
-	_world.set_loose(_state["loose"])
 	var client_display: String = _pending_client.get("display_name", "")
 	var client_username: String = _pending_client.get("username", "")
 	_panel.set_status("Scenario recorded — %s" % (client_display if client_display else client_username))

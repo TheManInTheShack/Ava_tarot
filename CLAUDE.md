@@ -851,6 +851,20 @@ the roadmap back up cold.
   `_mark_concept_active()` calls on it — toggling a kind off just means
   `active` never includes those keys, so the existing create/prune loop
   removes them the same way it already would if nothing matched at all.
+- **Record Scenario no longer clears the table (2026-08-22, behavior
+  change, not a new bug)**. This dates back to this repo's early history —
+  "Record Scenario is a mid-session save — writes a Scenario, clears the
+  table, leaves the Session open" — but per explicit direction, it should
+  do *at most* write the checkpoint node and nothing else. `_on_record_pressed()`
+  no longer resets `_state`/`_acl`/`_world` after `_send_checkpoint(false)`;
+  it still resyncs `_graph` (needed regardless, so a later Layout/Slot
+  edit doesn't PUT a stale copy back over what the server just wrote).
+  Side benefit, not the point of the change but worth knowing: End
+  Reading's own "skip a redundant Scenario write if nothing changed since
+  the last Record" diff-check now actually has a chance to fire after a
+  plain Record→End with no further changes — previously the table always
+  went empty right after Record, so that comparison (current empty
+  placements vs. the last non-empty save) could never match.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started
