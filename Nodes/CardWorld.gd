@@ -876,12 +876,18 @@ func _refresh_concept_nodes() -> void:
 	for entry in in_play:
 		var card_id: String = entry["card_id"]
 		var rec: Dictionary = _card_lookup.get(card_id, {})
-		var element: String = str(rec.get("element", ""))
-		var planet: String = str(rec.get("planet", ""))
-		if element != "" and element != "null":
-			_mark_concept_active(active, "element:%s" % element, card_id)
-		if planet != "" and planet != "null":
-			_mark_concept_active(active, "planet:%s" % planet, card_id)
+		# Checked against the actual null, not a stringified stand-in — Godot's
+		# str(null) is the literal string "<null>" (not "null"), which a prior
+		# version of this check missed, so cards with a genuinely null
+		# element/planet (correct and expected: Minor Arcana cards have no
+		# planet, only a suit-derived element) surfaced as a bogus "<null>"
+		# concept node instead of no node at all.
+		var element_val = rec.get("element")
+		var planet_val = rec.get("planet")
+		if element_val != null and str(element_val) != "":
+			_mark_concept_active(active, "element:%s" % str(element_val), card_id)
+		if planet_val != null and str(planet_val) != "":
+			_mark_concept_active(active, "planet:%s" % str(planet_val), card_id)
 		_mark_concept_active(active, "orientation:%s" % entry["orientation"], card_id)
 
 	for key in _concept_nodes.keys().duplicate():

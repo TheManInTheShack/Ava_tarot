@@ -801,6 +801,17 @@ the roadmap back up cold.
   this only prevents it going forward — notes typed before this fix, while
   out-of-session, were never actually written server-side and can't be
   recovered.
+- **Real bug, found live: a bogus `<null>` concept node (2026-08-22)**.
+  Reported as "face cards aren't given elements" — actually the *planet*
+  field, correctly null for every Minor Arcana card (only Major Arcana has
+  a planetary correspondence in this data; suits get an element instead,
+  which court/face cards *do* have). `_refresh_concept_nodes()`'s null
+  guard compared a stringified value against the literal `"null"`, but
+  Godot's `str(null)` actually produces `"<null>"` (with angle brackets) —
+  so a genuinely-null field slipped past the check and surfaced as a
+  concept node literally labeled `<null>` instead of no node at all. Fixed
+  by checking the real value against `null` directly, before stringifying,
+  rather than string-matching a stand-in for it.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started
