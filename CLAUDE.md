@@ -959,6 +959,37 @@ thing that's easy to reintroduce by "obvious" refactors:
    found) that printed the actual resolved slot/layer/flags settled every
    remaining ambiguity in one screenshot instead of several more rounds of
    guessing from shape.
+6. **A refactor that adds a real transform to a previously-transformless
+   node breaks every manual global↔local conversion that assumed
+   otherwise (2026-08-22).** Reported as "dragging a loose card onto an
+   already-modified card doesn't show the amber hint — right-click modify
+   works fine." There's no rule against multiple modifiers (confirmed by
+   grep), so that framing was a red herring — the real cause was
+   `PanZoomCanvas`, built earlier the same session: before it existed,
+   `_world` sat at CardWorld's own local origin with no transform of its
+   own, so `get_global_transform()` (i.e. `self`'s) could stand in for
+   `_world`'s whenever code needed to convert a `_world`-local point
+   (`_world.get_local_mouse_position()`) to global space. Once `_world`
+   gained a genuine pan/zoom transform and moved a level deeper (CardWorld
+   → `_canvas_area` → `_world`), that stand-in became wrong any time the
+   view was actually panned or zoomed — silently, since at default
+   pan/zoom the two transforms still agree. Hit two call sites:
+   `_resolve_loose_drop()` (drag-drop hit-testing — both the live hover
+   highlight and the actual drop resolution) and `_default_concept_spawn()`
+   (a new concept node's spawn position, computed global-side but assigned
+   as `.position` under a `_world`-parented node). Both fixed by routing
+   through `_world.get_global_transform()` instead of the implicit `self`.
+   The edge-drag/right-click modify path (`_update_edge_drag_hover()`) was
+   never affected, because it uses Godot's own `get_global_mouse_position()`
+   directly and never manually bridges `_world`-local to global at all —
+   exactly why that path "just worked" throughout. Contrast with
+   `_rebuild_modify_links()`/`_rebuild_concept_links()`/the edge-drag
+   preview line in `_draw()`, which correctly keep using `self`'s own
+   transform, because their output feeds `_draw()` itself — CardWorld's
+   own local frame, not `_world`'s. The rule going forward: a manual
+   transform bridge is only valid between two nodes with the *same* global
+   transform, and `PanZoomCanvas` deliberately broke that equivalence
+   between CardWorld and `_world`.
 
 ---
 

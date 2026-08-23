@@ -444,7 +444,7 @@ func _end_loose_drag() -> void:
 ## the intuitive rule ("closer slot wins") a diagnostic overlay confirmed was
 ## being violated (hovering near "past" was resolving to a distant "present").
 func _resolve_loose_drop(drag_pos: Vector2) -> Dictionary:
-	var world_point: Vector2 = get_global_transform() * (drag_pos + CardNode.CARD_SIZE / 2.0)
+	var world_point: Vector2 = _world.get_global_transform() * (drag_pos + CardNode.CARD_SIZE / 2.0)
 	var best: Dictionary = {}
 	var best_dist_sq := INF
 	for slot_id in _slot_geometry.keys():
@@ -492,14 +492,14 @@ func _resolve_loose_drop(drag_pos: Vector2) -> Dictionary:
 
 
 ## drag_pos/world_point plumbing note: a dragged loose card's position is
-## CardWorld-local (it comes straight from _world.get_local_mouse_position(),
-## and _world sits at CardWorld's own local origin with no transform of its
-## own). node.get_global_transform() is true viewport-space though -
-## CardWorld itself is offset within Main's layout (PANEL_W), so comparing a
-## local point directly against a node's inverse global transform is off by
-## that whole offset. Routing through CardWorld's own global transform first
-## (done once by the caller, not per-node) puts both sides in the same
-## space, same technique _rebuild_modify_links() uses for its endpoints.
+## _world-local (it comes straight from _world.get_local_mouse_position()).
+## Since PanZoomCanvas, _world carries its own real pan/zoom transform and
+## sits nested inside _canvas_area - it is no longer CardWorld's own global
+## transform, so converting a _world-local point to global must route
+## through _world.get_global_transform(), not get_global_transform() (self).
+## node.get_global_transform() is true viewport-space, so once world_point
+## is genuinely global, comparing it against a node's inverse global
+## transform is correct regardless of pan/zoom.
 func _node_hit(node: CardNode, world_point: Vector2) -> bool:
 	var local: Vector2 = node.get_global_transform().affine_inverse() * world_point
 	return Rect2(Vector2.ZERO, CardNode.CARD_SIZE).has_point(local)
@@ -949,11 +949,14 @@ func _make_concept_node(key: String, first_card_id: String) -> ConceptNode:
 ## Spawns near the first card that referenced it, offset up-and-right —
 ## falls back to a fixed spot if that card's own node can't be found for
 ## some reason (shouldn't normally happen, since it's in _last_cards_state/
-## _last_loose by construction).
+## _last_loose by construction). Result is used as a ConceptNode's own
+## .position, and ConceptNodes are parented under _world (not self), so
+## the global anchor point must be converted to _world-local space, not
+## CardWorld's own.
 func _default_concept_spawn(first_card_id: String) -> Vector2:
 	var card_node: CardNode = _find_card_node(first_card_id)
 	if card_node != null:
-		var to_local: Transform2D = get_global_transform().affine_inverse()
+		var to_local: Transform2D = _world.get_global_transform().affine_inverse()
 		var anchor: Vector2 = to_local * (card_node.get_layer_transform() * _link_anchor_point(card_node, true))
 		return anchor + Vector2(90.0, -70.0)
 	return Vector2(400.0, 200.0)
