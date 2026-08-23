@@ -881,6 +881,34 @@ the roadmap back up cold.
   drag and falls through to `super._input(event)` otherwise — window
   drag/resize/roll-up stays entirely `FloatingWindow`'s own concern,
   unaffected.
+- **Worksheet fields gain a second kind: `"tag_list"` (2026-08-22)**. The
+  Querent Worksheet now shows the focused client's Traits too — a chip
+  list with a Remove button each, plus a MenuButton+Add row for
+  assigning a new one, same interaction shape ControllerPanel's own
+  Traits rollup already uses, deliberately left untouched (a second UI
+  over the same underlying `Client--HAS_TRAIT-->Trait` edges, not a
+  refactor of the first). Fits the existing schema-driven design without
+  changing it: a Worksheet node's properties are still whatever
+  `graph_query`-shaped dict happens to be there, `_resolve_worksheet_fields()`
+  still resolves however many there are — the only addition is a `"kind"`
+  key on the property value (default `"text"`, the original single-value
+  behavior, unchanged) that a field can set to `"tag_list"` instead. For
+  that kind, *every* matched node from the query becomes an "items" entry
+  (not just the first, the way a scalar field's target is picked) — the
+  client's current traits; "vocabulary" (everything else offerable in the
+  Add picker) is plain local data from `_parse_traits()`, not a second
+  query, same as the Traits rollup's own Add picker already is. Each
+  Remove/Add fires immediately (`Worksheet.tag_removed`/`tag_added`) rather
+  than through the batched text-field Save button, because a toggle is
+  already a complete action with nothing to batch — `Main._toggle_querent_trait()`
+  writes the same `HAS_TRAIT` edge add/remove `_on_trait_toggled()` already
+  does for the regular rollup, just keyed off the Querent Worksheet's own
+  independent focus. `_ensure_worksheet_node()` now self-heals an
+  already-existing Worksheet node created before this field existed
+  (`_backfill_worksheet_properties()`, same "fill in what's missing on
+  rebuild" idea Paradotz's own NodePanel uses) — an already-created
+  client's Worksheet (e.g. one made before this shipped) picks up the new
+  Traits field the next time it's opened, not just brand-new ones.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started

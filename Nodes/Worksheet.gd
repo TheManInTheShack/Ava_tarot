@@ -14,13 +14,25 @@ extends FloatingWindow
 ## them here as a plain list. Zero client-notes-specific code lives here —
 ## like ContextWindow, this takes plain data in and reports plain data
 ## back, nothing tarot-specific.
+##
+## Two field kinds (2026-08-22): plain text (the default — a TextEdit +
+## explicit Save button) and "tag_list" (a resolved node list rendered as
+## a removable-chip list plus an Add picker, emitting tag_added/
+## tag_removed instead of field_saved — there's no single text value to
+## save, and each toggle is meant to write immediately, same as the
+## regular Traits rollup's own Add/Remove buttons do). Still fully
+## schema-driven: which kind a field is comes from the resolved field
+## dict's own "kind" key, not anything hardcoded here.
 
 signal field_saved(window: Worksheet, key: String, text: String)
+signal tag_added(window: Worksheet, key: String, item_id: String)
+signal tag_removed(window: Worksheet, key: String, item_id: String)
 
 const FIELD_MIN_HEIGHT := 60.0
 
 var _field_edits: Dictionary = {}  # key -> TextEdit
 var _fields_vbox: VBoxContainer
+var _tag_add_selected: Dictionary = {}  # field key -> currently chosen vocabulary item id (Add picker)
 
 # Per-field vertical resize drag, same press-then-track-via-_input() technique
 # FloatingWindow's own bottom/corner handles use — scoped to whichever
@@ -80,6 +92,7 @@ func set_fields(header: String, fields: Array) -> void:
 func _apply_fields(header: String, fields: Array) -> void:
 	_header_label.text = header
 	_field_edits.clear()
+	_tag_add_selected.clear()
 	for c in _fields_vbox.get_children():
 		c.queue_free()
 
@@ -89,6 +102,10 @@ func _apply_fields(header: String, fields: Array) -> void:
 		label.text = field.get("label", key)
 		label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.6))
 		_fields_vbox.add_child(label)
+
+		if field.get("kind", "text") == "tag_list":
+			_build_tag_list_field(key, field)
+			continue
 
 		var edit := TextEdit.new()
 		edit.custom_minimum_size = Vector2(0.0, 100.0)
@@ -108,6 +125,64 @@ func _apply_fields(header: String, fields: Array) -> void:
 		save_btn.text = "Save"
 		save_btn.pressed.connect(func() -> void: field_saved.emit(self, key, edit.text))
 		_fields_vbox.add_child(save_btn)
+
+
+## field: {"key","label","kind":"tag_list","items":[{"id","name"},...] (what
+## the resolved query currently matched), "vocabulary":[{"id","name"},...]
+## (everything else it could be — plain local data Main.gd already has,
+## same as the Traits rollup's own Add picker, not itself a second query)}.
+## Each Remove button fires immediately (tag_removed), same as the Add
+## button (tag_added) — no batching, no explicit Save, since a single
+## toggle is already a complete, well-defined action (matches the regular
+## Traits rollup's own Add/Remove buttons exactly).
+func _build_tag_list_field(key: String, field: Dictionary) -> void:
+	var items: Array = field.get("items", [])
+	if items.is_empty():
+		var empty_label := Label.new()
+		empty_label.text = "(none)"
+		empty_label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
+		_fields_vbox.add_child(empty_label)
+	for item in items:
+		var row := HBoxContainer.new()
+		var name_label := Label.new()
+		name_label.text = item.get("name", "")
+		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(name_label)
+		var remove_btn := Button.new()
+		remove_btn.text = "Remove"
+		var item_id: String = item.get("id", "")
+		remove_btn.pressed.connect(func() -> void: tag_removed.emit(self, key, item_id))
+		row.add_child(remove_btn)
+		_fields_vbox.add_child(row)
+
+	var vocabulary: Array = field.get("vocabulary", [])
+	var add_row := HBoxContainer.new()
+	var add_menu := MenuButton.new()
+	add_menu.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var popup := add_menu.get_popup()
+	for i in range(vocabulary.size()):
+		popup.add_item(vocabulary[i].get("name", ""), i)
+	if vocabulary.is_empty():
+		add_menu.text = "Nothing to add"
+	else:
+		add_menu.text = vocabulary[0].get("name", "")
+		_tag_add_selected[key] = vocabulary[0].get("id", "")
+	popup.id_pressed.connect(func(id: int) -> void:
+		add_menu.text = vocabulary[id].get("name", "")
+		_tag_add_selected[key] = vocabulary[id].get("id", "")
+	)
+	add_row.add_child(add_menu)
+
+	var add_btn := Button.new()
+	add_btn.text = "Add"
+	add_btn.disabled = vocabulary.is_empty()
+	add_btn.pressed.connect(func() -> void:
+		var chosen: String = _tag_add_selected.get(key, "")
+		if chosen != "":
+			tag_added.emit(self, key, chosen)
+	)
+	add_row.add_child(add_btn)
+	_fields_vbox.add_child(add_row)
 
 
 func _on_field_resize_input(edit: TextEdit, event: InputEvent) -> void:

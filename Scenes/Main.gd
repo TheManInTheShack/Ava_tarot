@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.31.4"
+const VERSION := "0.31.5"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -1119,6 +1119,8 @@ func _on_querent_worksheet_toggled() -> void:
 	add_child(_querent_worksheet)
 	_querent_worksheet.configure(Vector2(PANEL_W + 60.0, 120.0), Vector2(360.0, 280.0))
 	_querent_worksheet.field_saved.connect(_on_worksheet_field_saved)
+	_querent_worksheet.tag_added.connect(_on_worksheet_tag_added)
+	_querent_worksheet.tag_removed.connect(_on_worksheet_tag_removed)
 	_querent_worksheet.closed.connect(func(_w: FloatingWindow) -> void: _querent_worksheet = null)
 	_open_or_refresh_querent_worksheet()
 
@@ -1148,10 +1150,13 @@ func _ensure_worksheet_schema() -> void:
 	var schemas: Dictionary = _graph.get("type_schemas", {})
 	var schema: Dictionary = schemas.get("Worksheet", {})
 	var props: Array = schema.get("properties", [])
+	var existing_keys: Dictionary = {}
 	for p in props:
-		if p.get("key", "") == "client_notes":
-			return
-	props.append({"key": "client_notes", "type": "graph_query", "show_in_hover": true})
+		existing_keys[p.get("key", "")] = true
+	if not existing_keys.has("client_notes"):
+		props.append({"key": "client_notes", "type": "graph_query", "show_in_hover": true})
+	if not existing_keys.has("traits"):
+		props.append({"key": "traits", "type": "graph_query", "show_in_hover": true})
 	schema["properties"] = props
 	schemas["Worksheet"] = schema
 	_graph["type_schemas"] = schemas
@@ -1167,11 +1172,20 @@ func _ensure_worksheet_schema() -> void:
 ## server's own _ensure_client_node.
 func _ensure_worksheet_node(client_id: String) -> String:
 	var worksheet_id: String = "worksheet-%s" % client_id
-	for n in _graph.get("nodes", []):
+	var nodes: Array = _graph.get("nodes", [])
+	for n in nodes:
 		if str(n.get("id", "")) == worksheet_id:
+			# Self-heals a Worksheet node created before a given field
+			# existed (the "traits" field, added 2026-08-22) — same idea as
+			# Paradotz's own NodePanel rebuilding whatever properties are
+			# missing rather than requiring a migration. Only re-saves if
+			# something was actually missing.
+			if _backfill_worksheet_properties(n, client_id):
+				_graph["nodes"] = nodes
+				_ensure_worksheet_schema()
+				await _save_graph()
 			return worksheet_id
 
-	var nodes: Array = _graph.get("nodes", [])
 	var edges: Array = _graph.get("edges", [])
 
 	if not nodes.any(func(n): return str(n.get("id", "")) == client_id):
@@ -1185,14 +1199,7 @@ func _ensure_worksheet_node(client_id: String) -> String:
 
 	nodes.append({
 		"id": worksheet_id, "type": "Worksheet", "name": "Worksheet",
-		"properties": {
-			"client_notes": {
-				"graph": GRAPH_NAME,
-				"cypher": "MATCH (c:Client) WHERE c.id = $client_id RETURN c",
-				"params": {"client_id": client_id},
-				"field": "notes",
-			},
-		},
+		"properties": _default_worksheet_properties(client_id),
 	})
 	edges.append({"id": _next_id(), "from": client_id, "to": worksheet_id, "type": "HAS_WORKSHEET", "properties": {}})
 
@@ -1203,14 +1210,54 @@ func _ensure_worksheet_node(client_id: String) -> String:
 	return worksheet_id
 
 
+## Every graph_query-shaped property a freshly-created Worksheet node
+## starts with. Pulled out on its own so _backfill_worksheet_properties()
+## can compare an existing node's properties against exactly the same set
+## a new one would get, rather than duplicating the shape in two places.
+func _default_worksheet_properties(client_id: String) -> Dictionary:
+	return {
+		"client_notes": {
+			"graph": GRAPH_NAME,
+			"cypher": "MATCH (c:Client) WHERE c.id = $client_id RETURN c",
+			"params": {"client_id": client_id},
+			"field": "notes",
+		},
+		"traits": {
+			"graph": GRAPH_NAME,
+			"cypher": "MATCH (c:Client)-[:HAS_TRAIT]->(t:Trait) WHERE c.id = $client_id RETURN t",
+			"params": {"client_id": client_id},
+			"kind": "tag_list",
+		},
+	}
+
+
+## Returns true if it actually added anything (caller only re-saves then).
+func _backfill_worksheet_properties(node: Dictionary, client_id: String) -> bool:
+	var props: Dictionary = node.get("properties", {})
+	var changed := false
+	for key in _default_worksheet_properties(client_id):
+		if not props.has(key):
+			props[key] = _default_worksheet_properties(client_id)[key]
+			changed = true
+	if changed:
+		node["properties"] = props
+	return changed
+
+
 ## Generalized, not hardcoded to client_notes: every property on this
 ## specific worksheet node that looks graph_query-shaped (has "graph" and
-## "cypher" keys) gets resolved live and offered as an editable field —
-## however many there are right now. Remembers {key -> resolved node id}
-## in _worksheet_field_targets for the save step: the query's own first
-## matched node id *is* the write target, no separate bookkeeping needed.
+## "cypher" keys) gets resolved live and offered as a field — however many
+## there are right now. Two kinds, per each property's own "kind" key
+## (default "text"): a plain scalar field (remembers {key -> resolved node
+## id} in _worksheet_field_targets for the save step — the query's own
+## first matched node id *is* the write target, no separate bookkeeping
+## needed) or "tag_list" (every matched node is kept, not just the first —
+## the "items" currently assigned; "vocabulary" is everything else the
+## Trait vocabulary already has, plain local data via _parse_traits(), not
+## a second query, same as the regular Traits rollup's own Add picker).
 func _resolve_worksheet_fields(worksheet_id: String) -> Array:
 	_worksheet_field_targets.clear()
+	_parse_traits()
 	var worksheet_node: Dictionary = {}
 	for n in _graph.get("nodes", []):
 		if str(n.get("id", "")) == worksheet_id:
@@ -1223,6 +1270,28 @@ func _resolve_worksheet_fields(worksheet_id: String) -> Array:
 			continue
 		var result: Dictionary = await ApiClient.query_graph(val.get("graph", ""), val.get("cypher", ""), val.get("params", {}))
 		var matched: Array = result.get("nodes", [])
+
+		if val.get("kind", "text") == "tag_list":
+			var items: Array = []
+			var assigned_ids: Dictionary = {}
+			for m in matched:
+				var mid: String = str(m.get("id", ""))
+				items.append({"id": mid, "name": m.get("name", "")})
+				assigned_ids[mid] = true
+			var vocabulary: Array = []
+			for trait_id in _traits.keys():
+				if not assigned_ids.has(trait_id):
+					vocabulary.append({"id": trait_id, "name": _traits[trait_id].get("name", "")})
+			vocabulary.sort_custom(func(a, b): return a["name"].naturalnocasecmp_to(b["name"]) < 0)
+			fields.append({
+				"key": key,
+				"label": key.capitalize(),
+				"kind": "tag_list",
+				"items": items,
+				"vocabulary": vocabulary,
+			})
+			continue
+
 		if matched.is_empty():
 			continue
 		var target_node: Dictionary = matched[0]
@@ -1279,6 +1348,39 @@ func _on_worksheet_field_saved(_window: Worksheet, key: String, text: String) ->
 	_graph["nodes"] = nodes
 	await _save_graph()
 	_panel.set_status("Saved")
+
+
+func _on_worksheet_tag_added(_window: Worksheet, _key: String, trait_id: String) -> void:
+	_toggle_querent_trait(trait_id, true)
+
+
+func _on_worksheet_tag_removed(_window: Worksheet, _key: String, trait_id: String) -> void:
+	_toggle_querent_trait(trait_id, false)
+
+
+## Same HAS_TRAIT edge add/remove _on_trait_toggled() already does for the
+## Traits rollup's own client picker — traits are the same underlying data
+## (Client--HAS_TRAIT-->Trait) either way, just reached through a second UI
+## with its own independent focus (_focused_querent_client_id(), not
+## _focused_client_id() — see that function's own doc comment on why the
+## two pickers are deliberately separate). Refreshes only the open
+## Worksheet, not the Traits rollup, on purpose — "leaving the regular
+## trait rollup as it is": if both happen to be open on the same client,
+## the rollup catches up next time something re-triggers its own refresh.
+func _toggle_querent_trait(trait_id: String, has_trait: bool) -> void:
+	var client_id := _focused_querent_client_id()
+	if client_id == "":
+		return
+	var edges: Array = _graph.get("edges", [])
+	if has_trait:
+		var already: bool = edges.any(func(e): return e.get("type", "") == "HAS_TRAIT" and str(e.get("from", "")) == client_id and str(e.get("to", "")) == trait_id)
+		if not already:
+			edges.append({"id": _next_id(), "from": client_id, "to": trait_id, "type": "HAS_TRAIT", "properties": {}})
+	else:
+		edges = edges.filter(func(e): return not (e.get("type", "") == "HAS_TRAIT" and str(e.get("from", "")) == client_id and str(e.get("to", "")) == trait_id))
+	_graph["edges"] = edges
+	await _save_graph()
+	_open_or_refresh_querent_worksheet()
 
 
 func _on_trait_created(name: String) -> void:
