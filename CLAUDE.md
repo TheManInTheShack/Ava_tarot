@@ -872,6 +872,15 @@ the roadmap back up cold.
   plain Record→End with no further changes — previously the table always
   went empty right after Record, so that comparison (current empty
   placements vs. the last non-empty save) could never match.
+- **Worksheet fields are now vertically resizable (2026-08-22)**: each
+  field's `TextEdit` gets a thin drag grip below it (same press-then-
+  track-via-`_input()` technique `FloatingWindow`'s own bottom/corner
+  handles use, just scoped to whichever field's grip is currently held
+  rather than the whole window) so a long note isn't stuck at the fixed
+  100px it starts at. `Worksheet._input()` only intercepts an active grip
+  drag and falls through to `super._input(event)` otherwise — window
+  drag/resize/roll-up stays entirely `FloatingWindow`'s own concern,
+  unaffected.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started

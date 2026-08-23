@@ -17,8 +17,17 @@ extends FloatingWindow
 
 signal field_saved(window: Worksheet, key: String, text: String)
 
+const FIELD_MIN_HEIGHT := 60.0
+
 var _field_edits: Dictionary = {}  # key -> TextEdit
 var _fields_vbox: VBoxContainer
+
+# Per-field vertical resize drag, same press-then-track-via-_input() technique
+# FloatingWindow's own bottom/corner handles use — scoped to whichever
+# TextEdit's grip is currently held, not the window itself.
+var _field_resize_edit: TextEdit = null
+var _field_resize_start_mouse: Vector2 = Vector2.ZERO
+var _field_resize_start_height: float = 0.0
 
 
 func _build_body(body_margin: MarginContainer) -> void:
@@ -88,7 +97,38 @@ func _apply_fields(header: String, fields: Array) -> void:
 		_fields_vbox.add_child(edit)
 		_field_edits[key] = edit
 
+		var grip := Control.new()
+		grip.custom_minimum_size = Vector2(0.0, 8.0)
+		grip.mouse_filter = Control.MOUSE_FILTER_STOP
+		grip.mouse_default_cursor_shape = Control.CURSOR_VSIZE
+		grip.gui_input.connect(func(event: InputEvent) -> void: _on_field_resize_input(edit, event))
+		_fields_vbox.add_child(grip)
+
 		var save_btn := Button.new()
 		save_btn.text = "Save"
 		save_btn.pressed.connect(func() -> void: field_saved.emit(self, key, edit.text))
 		_fields_vbox.add_child(save_btn)
+
+
+func _on_field_resize_input(edit: TextEdit, event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			_field_resize_edit = edit
+			_field_resize_start_mouse = get_global_mouse_position()
+			_field_resize_start_height = edit.custom_minimum_size.y
+			get_viewport().set_input_as_handled()
+		else:
+			_field_resize_edit = null
+
+
+## Only intercepts an active field-grip drag; everything else (window
+## drag/resize/roll-up) is FloatingWindow's own concern, untouched.
+func _input(event: InputEvent) -> void:
+	if _field_resize_edit == null:
+		super._input(event)
+		return
+	if event is InputEventMouseMotion:
+		var delta_y: float = get_global_mouse_position().y - _field_resize_start_mouse.y
+		_field_resize_edit.custom_minimum_size.y = maxf(FIELD_MIN_HEIGHT, _field_resize_start_height + delta_y)
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed:
+		_field_resize_edit = null
