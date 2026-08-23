@@ -1158,6 +1158,19 @@ one in, but the same "only way to confirm a deploy reached this build"
 reasoning applies, and it's genuinely how the client-never-rendered-cards
 bug that session (see "Current State" above) got confirmed fixed.
 
+**Cross-repo build log, added 2026-08-22:** this file is the detailed, dated
+session-by-session record for THIS repo, but the user-facing build log
+Paradotz/Plotz/every satellite already have lives in the other repo —
+`Grant/docz/apps/paratarot-build-log.md`. It was backfilled from this file's
+own history in one pass, but nothing keeps it current automatically going
+forward. **Whenever a real change ships here** (this file already gets a
+dated entry per the existing convention — see every "2026-08-2x" entry
+above), also add the equivalent, more condensed entry to
+`Grant/docz/apps/paratarot-build-log.md` in the Grant repo, then commit/push
+there too. Two repos, two files, one real change — easy to do the first
+half and forget the second, which is exactly how the build log went stale
+enough to need reconstructing in the first place.
+
 ---
 
 ## Deployment
