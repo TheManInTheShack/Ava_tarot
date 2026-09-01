@@ -938,6 +938,22 @@ the roadmap back up cold.
   Paradotz's own setting, hands the `<img>` element to this script alone
   with no native rendering path to conflict with. `v0.31.8`.
 
+- **Boot screen now shows title/version/status text below the logo
+  (2026-09-02)**: `export_presets.cfg`'s `head_include` script (see the
+  aab46bb fix above) now also creates and appends three more `<div>`s
+  after the logo `<img>` — "Paratarot" (20px), "v0.31.9" (12px, muted),
+  "Application initializing" (9px, more muted) — via plain
+  `document.createElement`/`textContent`/`appendChild`, no template
+  engine involved. All three land as normal-flow children of `#status`
+  (same `flex-direction:column; align-items:center` container the logo
+  itself now participates in since the `position:static` fix), so they
+  stack and center automatically with no extra positioning math needed.
+  **The version string is hardcoded here and won't move on its own** —
+  same manual-sync burden this repo already accepts elsewhere (e.g.
+  dashboard.html's own per-app version strings) — bump it here alongside
+  `Main.gd`'s own `const VERSION` on every future version change, or the
+  boot screen will show a stale number. `v0.31.9`.
+
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started
 - Celtic Cross / Ava's Celtic Cross layouts (buildable now via the Layout
