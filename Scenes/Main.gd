@@ -67,33 +67,16 @@ var _worksheet_field_targets: Dictionary = {}  # key -> resolved node id, from t
 func _ready() -> void:
 	randomize()
 
-	var loading_box := VBoxContainer.new()
-	loading_box.set_anchors_preset(Control.PRESET_CENTER)
-	loading_box.alignment = BoxContainer.ALIGNMENT_CENTER
-	loading_box.add_theme_constant_override("separation", 16)
-	add_child(loading_box)
-
-	# The same node-graph logo used as this app's small dashboard icon
-	# (Assets/Images/app_icon.png, the real 512x512 source that icon is
-	# downscaled from) -- shown at real size on the loading screen instead
-	# of nothing but bare text.
-	var logo := TextureRect.new()
-	logo.texture = load("res://Assets/Images/app_icon.png")
-	logo.custom_minimum_size = Vector2(240, 240)
-	logo.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	logo.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	loading_box.add_child(logo)
-
 	_status_label = Label.new()
 	_status_label.text = "Loading…"
-	_status_label.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	loading_box.add_child(_status_label)
+	_status_label.set_anchors_preset(Control.PRESET_CENTER)
+	add_child(_status_label)
 
 	_deck = _load_deck()
 	_deck_order = _canonical_deck_order()
 	_me = await ApiClient.get_me()
-	if is_instance_valid(loading_box):
-		loading_box.queue_free()
+	if is_instance_valid(_status_label):
+		_status_label.queue_free()
 
 	if _me.is_empty():
 		_show_error("Not signed in.")

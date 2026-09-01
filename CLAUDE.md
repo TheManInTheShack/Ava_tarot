@@ -910,14 +910,23 @@ the roadmap back up cold.
   client's Worksheet (e.g. one made before this shipped) picks up the new
   Traits field the next time it's opened, not just brand-new ones.
 
-- **Loading screen shows the real app logo (2026-09-02)**: the initial
-  "Loading…" screen (`Main._ready()`, shown while awaiting
-  `ApiClient.get_me()` to determine controller vs. client mode) was bare
-  text. Now shows `Assets/Images/app_icon.png` (the real 512x512 source
-  the dashboard's own small icon is downscaled from) at real size above
-  the label, both wrapped in one `VBoxContainer` built/torn down together
-  — same lifecycle as before, just wrapping both instead of the label
-  alone. `v0.31.7`.
+- **Fixed a real bug: the logo flashed in the wrong place on the actual
+  engine boot screen (2026-09-02)**. Not the in-app "Loading…" text
+  (`Main._ready()`, unchanged, still bare text) — the real Godot Web
+  export boot screen, shown while the .wasm/.pck are still downloading.
+  `export_presets.cfg`'s `html/head_include` already had the right idea
+  (a `DOMContentLoaded` script that finds the page's `<img id="status-
+  splash">` and swaps in the app_icon.png logo with its own inline style)
+  — same technique Paradotz already uses correctly — but `project.godot`
+  had `boot_splash/show_image=true`, so Godot's OWN native splash-image
+  path was ALSO trying to render that same `<img>` (via its
+  `show-image--true` CSS class) at the same time, racing the custom
+  script's own override. The visible symptom was a flash of Godot's own
+  unstyled rendering before the script's inline style (which overrides
+  the class rule) won a moment later. Fixed by setting
+  `boot_splash/show_image=false`, exactly matching Paradotz's own
+  `project.godot` — this hands the `<img>` entirely to the custom script,
+  with no native path left to race against. `v0.31.7`.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started
