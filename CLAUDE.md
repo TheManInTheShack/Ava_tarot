@@ -910,6 +910,15 @@ the roadmap back up cold.
   client's Worksheet (e.g. one made before this shipped) picks up the new
   Traits field the next time it's opened, not just brand-new ones.
 
+- **Loading screen shows the real app logo (2026-09-02)**: the initial
+  "Loading…" screen (`Main._ready()`, shown while awaiting
+  `ApiClient.get_me()` to determine controller vs. client mode) was bare
+  text. Now shows `Assets/Images/app_icon.png` (the real 512x512 source
+  the dashboard's own small icon is downscaled from) at real size above
+  the label, both wrapped in one `VBoxContainer` built/torn down together
+  — same lifecycle as before, just wrapping both instead of the label
+  alone. `v0.31.7`.
+
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started
 - Celtic Cross / Ava's Celtic Cross layouts (buildable now via the Layout
