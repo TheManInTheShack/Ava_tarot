@@ -910,23 +910,33 @@ the roadmap back up cold.
   client's Worksheet (e.g. one made before this shipped) picks up the new
   Traits field the next time it's opened, not just brand-new ones.
 
-- **Fixed a real bug: the logo flashed in the wrong place on the actual
-  engine boot screen (2026-09-02)**. Not the in-app "Loading…" text
-  (`Main._ready()`, unchanged, still bare text) — the real Godot Web
-  export boot screen, shown while the .wasm/.pck are still downloading.
-  `export_presets.cfg`'s `html/head_include` already had the right idea
-  (a `DOMContentLoaded` script that finds the page's `<img id="status-
-  splash">` and swaps in the app_icon.png logo with its own inline style)
-  — same technique Paradotz already uses correctly — but `project.godot`
-  had `boot_splash/show_image=true`, so Godot's OWN native splash-image
-  path was ALSO trying to render that same `<img>` (via its
-  `show-image--true` CSS class) at the same time, racing the custom
-  script's own override. The visible symptom was a flash of Godot's own
-  unstyled rendering before the script's inline style (which overrides
-  the class rule) won a moment later. Fixed by setting
-  `boot_splash/show_image=false`, exactly matching Paradotz's own
-  `project.godot` — this hands the `<img>` entirely to the custom script,
-  with no native path left to race against. `v0.31.7`.
+- **Actually fixed the boot-screen logo (2026-09-02) — the real root
+  cause, found by empirically rendering the exported HTML in headless
+  Chrome rather than reasoning from the source alone (two earlier same-day
+  attempts both guessed wrong; see git history on this line for the
+  discarded theories).** `export_presets.cfg`'s `html/head_include` script
+  (a `DOMContentLoaded` handler that finds the page's `<img id="status-
+  splash">` and swaps in the app_icon.png logo) had **never actually run,
+  ever** — it has a genuine syntax error, one extra `}` before the closing
+  `)` of the `addEventListener(...)` call (`}}});` instead of `}});`),
+  confirmed via Chrome's own console output
+  (`Uncaught SyntaxError: missing ) after argument list`). Paradotz's own
+  copy of this same script (the working reference this was ported from)
+  does NOT have the extra brace — a copy/paste slip when this was adapted
+  for this repo, sitting unnoticed this whole time since a script that
+  fails to parse just silently never registers its listener; nothing
+  else in the page depends on it. Also added `position:static` to the
+  script's own `cssText` — without it, the swapped-in `<img>` keeps the
+  `position:absolute; top:0; bottom:0; left:0; right:0` it inherits from
+  the page's base stylesheet (needed for Godot's OWN native full-screen
+  splash mode, not this custom small-centered-logo one), which pulls the
+  element out of `#status`'s flex layout entirely — confirmed via an
+  isolated repro that the element renders completely invisible without
+  this override, regardless of the syntax fix. `project.godot`'s
+  `boot_splash/show_image=false` (set in one of the same-day discarded
+  attempts) turned out to still be correct and stays — it matches
+  Paradotz's own setting, hands the `<img>` element to this script alone
+  with no native rendering path to conflict with. `v0.31.8`.
 
 ### What is not yet done (deliberately deferred, not forgotten)
 - Background (Step 6's other half) — per-Layout fill-color/image, not started
