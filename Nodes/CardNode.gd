@@ -112,9 +112,9 @@ static func ensure_back_texture_loaded() -> void:
 func _build_loose_label() -> void:
 	_loose_label = Label.new()
 	_loose_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_loose_label.add_theme_font_size_override("font_size", 13)
+	_loose_label.add_theme_font_size_override("font_size", 16)
 	_loose_label.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
-	_loose_label.size = Vector2(CARD_SIZE.x + 80.0, 18.0)
+	_loose_label.size = Vector2(CARD_SIZE.x + 80.0, 22.0)
 	_loose_label.visible = false
 	add_child(_loose_label)
 

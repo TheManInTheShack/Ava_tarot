@@ -70,7 +70,7 @@ func _ready() -> void:
 	margin.add_child(header_hbox)
 
 	_header_label = Label.new()
-	_header_label.add_theme_font_size_override("font_size", 15)
+	_header_label.add_theme_font_size_override("font_size", 18)
 	_header_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_header_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	header_hbox.add_child(_header_label)

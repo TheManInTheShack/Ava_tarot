@@ -15,7 +15,7 @@ const GRAPH_NAME := "tarot-deck"
 ## Paradotz's MainMenu.gd — it's the only way to confirm a deploy took effect
 ## in the browser (nginx now sends Cache-Control: no-cache for /paratarot/,
 ## same fix as /paradotz/, but this is the actual proof).
-const VERSION := "0.31.9"
+const VERSION := "0.32.0"
 
 var _mode: String = ""  # "controller" | "client" | ""
 var _me: Dictionary = {}
@@ -2172,7 +2172,7 @@ func _show_deck_context_menu() -> void:
 
 	var label := Label.new()
 	label.text = "Deck"
-	label.add_theme_font_size_override("font_size", 14)
+	label.add_theme_font_size_override("font_size", 18)
 	label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
 	label.custom_minimum_size = Vector2(140.0, 0.0)
 	vbox.add_child(label)
@@ -2191,7 +2191,7 @@ func _show_card_context_menu(slot_id: String, layer: String) -> void:
 	var label := Label.new()
 	var slot_name: String = _slots.get(slot_id, {}).get("name", slot_id)
 	label.text = "%s — %s" % [slot_name, ControllerPanel.LAYER_LABELS.get(layer, layer)]
-	label.add_theme_font_size_override("font_size", 14)
+	label.add_theme_font_size_override("font_size", 18)
 	label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
 	label.custom_minimum_size = Vector2(160.0, 0.0)
 	vbox.add_child(label)
@@ -2223,7 +2223,7 @@ func _show_loose_context_menu(card_id: String) -> void:
 
 	var label := Label.new()
 	label.text = "%s (loose)" % info.get("name", card_id)
-	label.add_theme_font_size_override("font_size", 14)
+	label.add_theme_font_size_override("font_size", 18)
 	label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
 	label.custom_minimum_size = Vector2(180.0, 0.0)
 	vbox.add_child(label)
@@ -2249,7 +2249,7 @@ func _add_ctx_button(vbox: VBoxContainer, text: String, cb: Callable) -> void:
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	btn.custom_minimum_size = Vector2(160.0, 40.0)
 	btn.add_theme_color_override("font_color", Color(0.88, 0.88, 0.88))
-	btn.add_theme_font_size_override("font_size", 14)
+	btn.add_theme_font_size_override("font_size", 18)
 	btn.pressed.connect(func() -> void:
 		cb.call()
 		_hide_context_menu()

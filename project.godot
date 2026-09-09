@@ -22,6 +22,17 @@ boot_splash/show_image=false
 
 ApiClient="*res://Autoloads/ApiClient.gd"
 
+[gui]
+
+; Straight readability bump (2026-09-09, Ava's sister reported the text
+; too small) -- Godot 4's default is 16. Raises every Control's default
+; text size project-wide with zero per-element changes; the handful of
+; explicit add_theme_font_size_override() calls scattered through the
+; UI code (context menus, card/slot labels, window headers) are bumped
+; by roughly the same proportion alongside this, since those don't
+; inherit from this setting.
+theme/default_font_size=20
+
 [display]
 
 window/size/viewport_width=1920

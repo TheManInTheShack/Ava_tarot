@@ -74,7 +74,7 @@ func _ready() -> void:
 	_build_card_layer("horizontal")
 
 	_build_sub_label("vertical", CardNode.CARD_SIZE.y + 4.0)
-	_build_sub_label("horizontal", CardNode.CARD_SIZE.y + 22.0)
+	_build_sub_label("horizontal", CardNode.CARD_SIZE.y + 26.0)
 
 
 func _draw() -> void:
@@ -113,10 +113,10 @@ func _build_card_layer(layer: String) -> void:
 func _build_sub_label(layer: String, y: float) -> void:
 	var label := Label.new()
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	label.add_theme_font_size_override("font_size", 13)
+	label.add_theme_font_size_override("font_size", 16)
 	label.add_theme_color_override("font_color", Color(0.75, 0.75, 0.75))
 	label.position = Vector2(-40, y)
-	label.size = Vector2(CardNode.CARD_SIZE.x + 80, 18)
+	label.size = Vector2(CardNode.CARD_SIZE.x + 80, 22)
 	label.visible = false
 	add_child(label)
 	_sub_labels[layer] = label
